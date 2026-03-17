@@ -12,6 +12,11 @@ from fastmcp import FastMCP
 
 # Import tools and argument models
 from .tools import (
+    CreateDimensionArgs,
+    CreateMeasureArgs,
+    CreateObjectArgs,
+    CreateSheetArgs,
+    CreateVariableArgs,
     GetAppDataSourcesArgs,
     GetAppDimensionsArgs,
     GetAppFieldsArgs,
@@ -20,6 +25,14 @@ from .tools import (
     GetAppSheetsArgs,
     GetAppVariablesArgs,
     GetSheetObjectsArgs,
+    ReloadAppArgs,
+    SaveAppArgs,
+    SetScriptArgs,
+    create_dimension,
+    create_measure,
+    create_object,
+    create_sheet,
+    create_variable,
     get_app_data_sources,
     get_app_dimensions,
     get_app_fields,
@@ -29,6 +42,9 @@ from .tools import (
     get_app_variables,
     get_sheet_objects,
     list_qlik_applications,
+    reload_app,
+    save_app,
+    set_script,
 )
 
 # Load environment variables - ensure we load from the correct directory
@@ -420,6 +436,234 @@ async def handle_get_app_data_sources(args: GetAppDataSourcesArgs) -> dict[str, 
         print(f"❌ Unexpected error in MCP handler: {e}", file=sys.stderr)
         import traceback
         print(f"❌ Traceback: {traceback.format_exc()}", file=sys.stderr)
+        return error_response
+
+
+# ============================================
+# WRITE Tool Handlers
+# ============================================
+
+
+@mcp.tool()
+async def handle_create_measure(args: CreateMeasureArgs) -> dict[str, Any]:
+    """Create a new master measure in a Qlik Sense application."""
+    print(f"➕ Creating measure '{args.title}' in app: {args.app_id}", file=sys.stderr)
+
+    try:
+        result = await create_measure(
+            app_id=args.app_id,
+            title=args.title,
+            expression=args.expression,
+            description=args.description,
+            label=args.label,
+            tags=args.tags,
+        )
+
+        if "error" in result:
+            print(f"❌ Error: {result['error']}", file=sys.stderr)
+        else:
+            print(f"✅ Measure created successfully", file=sys.stderr)
+
+        return result
+
+    except Exception as e:
+        error_response = {
+            "error": f"Unexpected error: {e!s}",
+            "app_id": args.app_id,
+        }
+        print(f"❌ Unexpected error: {e}", file=sys.stderr)
+        return error_response
+
+
+@mcp.tool()
+async def handle_create_variable(args: CreateVariableArgs) -> dict[str, Any]:
+    """Create a new variable in a Qlik Sense application."""
+    print(f"➕ Creating variable '{args.name}' in app: {args.app_id}", file=sys.stderr)
+
+    try:
+        result = await create_variable(
+            app_id=args.app_id,
+            name=args.name,
+            definition=args.definition,
+            comment=args.comment,
+        )
+
+        if "error" in result:
+            print(f"❌ Error: {result['error']}", file=sys.stderr)
+        else:
+            print(f"✅ Variable created successfully", file=sys.stderr)
+
+        return result
+
+    except Exception as e:
+        error_response = {
+            "error": f"Unexpected error: {e!s}",
+            "app_id": args.app_id,
+        }
+        print(f"❌ Unexpected error: {e}", file=sys.stderr)
+        return error_response
+
+
+@mcp.tool()
+async def handle_create_dimension(args: CreateDimensionArgs) -> dict[str, Any]:
+    """Create a new master dimension in a Qlik Sense application."""
+    print(f"➕ Creating dimension '{args.title}' in app: {args.app_id}", file=sys.stderr)
+
+    try:
+        result = await create_dimension(
+            app_id=args.app_id,
+            title=args.title,
+            field_def=args.field_def,
+            description=args.description,
+            tags=args.tags,
+            grouping=args.grouping,
+        )
+
+        if "error" in result:
+            print(f"❌ Error: {result['error']}", file=sys.stderr)
+        else:
+            print(f"✅ Dimension created successfully", file=sys.stderr)
+
+        return result
+
+    except Exception as e:
+        error_response = {
+            "error": f"Unexpected error: {e!s}",
+            "app_id": args.app_id,
+        }
+        print(f"❌ Unexpected error: {e}", file=sys.stderr)
+        return error_response
+
+
+@mcp.tool()
+async def handle_create_sheet(args: CreateSheetArgs) -> dict[str, Any]:
+    """Create a new sheet in a Qlik Sense application."""
+    print(f"➕ Creating sheet '{args.title}' in app: {args.app_id}", file=sys.stderr)
+
+    try:
+        result = await create_sheet(
+            app_id=args.app_id,
+            title=args.title,
+            description=args.description,
+        )
+
+        if "error" in result:
+            print(f"❌ Error: {result['error']}", file=sys.stderr)
+        else:
+            print(f"✅ Sheet created successfully", file=sys.stderr)
+
+        return result
+
+    except Exception as e:
+        error_response = {
+            "error": f"Unexpected error: {e!s}",
+            "app_id": args.app_id,
+        }
+        print(f"❌ Unexpected error: {e}", file=sys.stderr)
+        return error_response
+
+
+@mcp.tool()
+async def handle_create_object(args: CreateObjectArgs) -> dict[str, Any]:
+    """Create a generic object (visualization) in a Qlik Sense application."""
+    print(f"➕ Creating {args.object_type} '{args.title}' in app: {args.app_id}", file=sys.stderr)
+
+    try:
+        result = await create_object(
+            app_id=args.app_id,
+            object_type=args.object_type,
+            title=args.title,
+            properties=args.properties,
+        )
+
+        if "error" in result:
+            print(f"❌ Error: {result['error']}", file=sys.stderr)
+        else:
+            print(f"✅ Object created successfully", file=sys.stderr)
+
+        return result
+
+    except Exception as e:
+        error_response = {
+            "error": f"Unexpected error: {e!s}",
+            "app_id": args.app_id,
+        }
+        print(f"❌ Unexpected error: {e}", file=sys.stderr)
+        return error_response
+
+
+@mcp.tool()
+async def handle_set_script(args: SetScriptArgs) -> dict[str, Any]:
+    """Set the data load script for a Qlik Sense application."""
+    print(f"📝 Setting script for app: {args.app_id}", file=sys.stderr)
+
+    try:
+        result = await set_script(
+            app_id=args.app_id,
+            script=args.script,
+        )
+
+        if "error" in result:
+            print(f"❌ Error: {result['error']}", file=sys.stderr)
+        else:
+            print(f"✅ Script set successfully", file=sys.stderr)
+
+        return result
+
+    except Exception as e:
+        error_response = {
+            "error": f"Unexpected error: {e!s}",
+            "app_id": args.app_id,
+        }
+        print(f"❌ Unexpected error: {e}", file=sys.stderr)
+        return error_response
+
+
+@mcp.tool()
+async def handle_save_app(args: SaveAppArgs) -> dict[str, Any]:
+    """Save a Qlik Sense application."""
+    print(f"💾 Saving app: {args.app_id}", file=sys.stderr)
+
+    try:
+        result = await save_app(app_id=args.app_id)
+
+        if "error" in result:
+            print(f"❌ Error: {result['error']}", file=sys.stderr)
+        else:
+            print(f"✅ App saved successfully", file=sys.stderr)
+
+        return result
+
+    except Exception as e:
+        error_response = {
+            "error": f"Unexpected error: {e!s}",
+            "app_id": args.app_id,
+        }
+        print(f"❌ Unexpected error: {e}", file=sys.stderr)
+        return error_response
+
+
+@mcp.tool()
+async def handle_reload_app(args: ReloadAppArgs) -> dict[str, Any]:
+    """Trigger a data reload for a Qlik Sense application."""
+    print(f"🔄 Reloading app: {args.app_id}", file=sys.stderr)
+
+    try:
+        result = await reload_app(app_id=args.app_id)
+
+        if "error" in result:
+            print(f"❌ Error: {result['error']}", file=sys.stderr)
+        else:
+            print(f"✅ App reload triggered successfully", file=sys.stderr)
+
+        return result
+
+    except Exception as e:
+        error_response = {
+            "error": f"Unexpected error: {e!s}",
+            "app_id": args.app_id,
+        }
+        print(f"❌ Unexpected error: {e}", file=sys.stderr)
         return error_response
 
 

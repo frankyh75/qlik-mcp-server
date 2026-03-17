@@ -6,6 +6,8 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, Field, field_validator
 
+from .qlik_client import QlikClient
+
 
 class GetAppMeasuresArgs(BaseModel):
     """Retrieve all measures from a Qlik Sense application.
@@ -1181,3 +1183,542 @@ async def get_app_data_sources(
     finally:
         # Always disconnect
         client.disconnect()
+
+
+# ============================================
+# WRITE Tools
+# ============================================
+
+
+class CreateMeasureArgs(BaseModel):
+    """Create a new master measure in a Qlik Sense application.
+
+    This tool connects to a Qlik Sense server, opens the specified application,
+    creates a new master measure with the provided properties, and returns
+    the result of the operation.
+    """
+
+    app_id: Annotated[str, Field(
+        description="Qlik Sense application ID (GUID format or app name)",
+        min_length=1,
+        max_length=255,
+    )]
+    title: Annotated[str, Field(
+        description="Measure title/name",
+        min_length=1,
+        max_length=255,
+    )]
+    expression: Annotated[str, Field(
+        description="Qlik expression (e.g., 'Sum(Sales)', 'Count(Distinct CustomerID)')",
+        min_length=1,
+    )]
+    description: Annotated[str, Field(
+        default="",
+        description="Optional description for the measure",
+    )] = ""
+    label: Annotated[str, Field(
+        default="",
+        description="Optional display label (defaults to title if not provided)",
+    )] = ""
+    tags: Annotated[list[str] | None, Field(
+        default=None,
+        description="Optional list of tags for categorization",
+    )] = None
+
+    @field_validator("app_id", "title", "expression")
+    @classmethod
+    def validate_required(cls, v: str) -> str:
+        """Ensure required fields are not empty."""
+        if not v or not v.strip():
+            raise ValueError("Field cannot be empty")
+        return v.strip()
+
+
+class CreateVariableArgs(BaseModel):
+    """Create a new variable in a Qlik Sense application.
+
+    Variables can hold static values or dynamic expressions and can be
+    used throughout the app in expressions and scripts.
+    """
+
+    app_id: Annotated[str, Field(
+        description="Qlik Sense application ID (GUID format or app name)",
+        min_length=1,
+        max_length=255,
+    )]
+    name: Annotated[str, Field(
+        description="Variable name (case sensitive)",
+        min_length=1,
+        max_length=255,
+    )]
+    definition: Annotated[str, Field(
+        default="",
+        description="Variable value or expression",
+    )] = ""
+    comment: Annotated[str, Field(
+        default="",
+        description="Optional comment/description",
+    )] = ""
+
+    @field_validator("app_id", "name")
+    @classmethod
+    def validate_required(cls, v: str) -> str:
+        """Ensure required fields are not empty."""
+        if not v or not v.strip():
+            raise ValueError("Field cannot be empty")
+        return v.strip()
+
+
+class CreateDimensionArgs(BaseModel):
+    """Create a new master dimension in a Qlik Sense application.
+
+    Master dimensions are stored in the library and can be reused
+    across multiple visualizations in the app.
+    """
+
+    app_id: Annotated[str, Field(
+        description="Qlik Sense application ID (GUID format or app name)",
+        min_length=1,
+        max_length=255,
+    )]
+    title: Annotated[str, Field(
+        description="Dimension title/name",
+        min_length=1,
+        max_length=255,
+    )]
+    field_def: Annotated[str | list[str], Field(
+        description="Field name(s) - string for single field, list for drill-down hierarchy",
+    )]
+    description: Annotated[str, Field(
+        default="",
+        description="Optional description",
+    )] = ""
+    tags: Annotated[list[str] | None, Field(
+        default=None,
+        description="Optional list of tags",
+    )] = None
+    grouping: Annotated[str, Field(
+        default="N",
+        description="Grouping type: 'N' for None (flat), 'H' for Drill-down hierarchy",
+    )] = "N"
+
+    @field_validator("app_id", "title")
+    @classmethod
+    def validate_required(cls, v: str) -> str:
+        """Ensure required fields are not empty."""
+        if not v or not v.strip():
+            raise ValueError("Field cannot be empty")
+        return v.strip()
+
+    @field_validator("grouping")
+    @classmethod
+    def validate_grouping(cls, v: str) -> str:
+        """Ensure grouping is valid."""
+        if v not in ("N", "H"):
+            raise ValueError("grouping must be 'N' or 'H'")
+        return v
+
+
+class CreateSheetArgs(BaseModel):
+    """Create a new sheet in a Qlik Sense application.
+
+    Sheets are containers for visualizations and other objects.
+    """
+
+    app_id: Annotated[str, Field(
+        description="Qlik Sense application ID (GUID format or app name)",
+        min_length=1,
+        max_length=255,
+    )]
+    title: Annotated[str, Field(
+        description="Sheet title",
+        min_length=1,
+        max_length=255,
+    )]
+    description: Annotated[str, Field(
+        default="",
+        description="Optional sheet description",
+    )] = ""
+
+    @field_validator("app_id", "title")
+    @classmethod
+    def validate_required(cls, v: str) -> str:
+        """Ensure required fields are not empty."""
+        if not v or not v.strip():
+            raise ValueError("Field cannot be empty")
+        return v.strip()
+
+
+class CreateObjectArgs(BaseModel):
+    """Create a generic object (visualization) in a Qlik Sense application.
+
+    This is a low-level tool for creating any type of Qlik object including
+    charts, tables, KPIs, and custom visualizations.
+    """
+
+    app_id: Annotated[str, Field(
+        description="Qlik Sense application ID (GUID format or app name)",
+        min_length=1,
+        max_length=255,
+    )]
+    object_type: Annotated[str, Field(
+        description="Type of object: 'barchart', 'linechart', 'piechart', 'table', 'kpi', 'map', etc.",
+        min_length=1,
+    )]
+    title: Annotated[str, Field(
+        description="Object title",
+        min_length=1,
+        max_length=255,
+    )]
+    properties: Annotated[dict[str, Any] | None, Field(
+        default=None,
+        description="Object-specific properties (dimensions, measures, etc.)",
+    )] = None
+
+    @field_validator("app_id", "object_type", "title")
+    @classmethod
+    def validate_required(cls, v: str) -> str:
+        """Ensure required fields are not empty."""
+        if not v or not v.strip():
+            raise ValueError("Field cannot be empty")
+        return v.strip()
+
+
+class SetScriptArgs(BaseModel):
+    """Set the data load script for a Qlik Sense application.
+
+    WARNING: This replaces the entire script. Use get_app_script first
+    to retrieve the current script if you want to modify it.
+    """
+
+    app_id: Annotated[str, Field(
+        description="Qlik Sense application ID (GUID format or app name)",
+        min_length=1,
+        max_length=255,
+    )]
+    script: Annotated[str, Field(
+        description="Complete load script content",
+        min_length=1,
+    )]
+
+    @field_validator("app_id", "script")
+    @classmethod
+    def validate_required(cls, v: str) -> str:
+        """Ensure required fields are not empty."""
+        if not v or not v.strip():
+            raise ValueError("Field cannot be empty")
+        return v.strip()
+
+
+class SaveAppArgs(BaseModel):
+    """Save a Qlik Sense application.
+
+    Saves all changes made to the app since the last save or since it was opened.
+    """
+
+    app_id: Annotated[str, Field(
+        description="Qlik Sense application ID (GUID format or app name)",
+        min_length=1,
+        max_length=255,
+    )]
+
+    @field_validator("app_id")
+    @classmethod
+    def validate_app_id(cls, v: str) -> str:
+        """Ensure app_id is not empty."""
+        if not v or not v.strip():
+            raise ValueError("app_id cannot be empty")
+        return v.strip()
+
+
+class ReloadAppArgs(BaseModel):
+    """Trigger a data reload for a Qlik Sense application.
+
+    This reloads all data according to the load script.
+    Depending on data volume, this may take a long time.
+    """
+
+    app_id: Annotated[str, Field(
+        description="Qlik Sense application ID (GUID format or app name)",
+        min_length=1,
+        max_length=255,
+    )]
+
+    @field_validator("app_id")
+    @classmethod
+    def validate_app_id(cls, v: str) -> str:
+        """Ensure app_id is not empty."""
+        if not v or not v.strip():
+            raise ValueError("app_id cannot be empty")
+        return v.strip()
+
+
+async def create_measure(
+    app_id: str,
+    title: str,
+    expression: str,
+    description: str = "",
+    label: str = "",
+    tags: list[str] | None = None,
+) -> dict[str, Any]:
+    """Create a new master measure in a Qlik Sense application."""
+    client = QlikClient()
+
+    try:
+        if not client.connect(app_id):
+            return {"error": f"Failed to connect to app: {app_id}"}
+
+        result = client.create_measure(
+            title=title,
+            expression=expression,
+            description=description,
+            label=label,
+            tags=tags,
+        )
+
+        return {
+            **result,
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    except Exception as e:
+        return {
+            "error": str(e),
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    finally:
+        client.disconnect()
+
+
+async def create_variable(
+    app_id: str,
+    name: str,
+    definition: str = "",
+    comment: str = "",
+) -> dict[str, Any]:
+    """Create a new variable in a Qlik Sense application."""
+    client = QlikClient()
+
+    try:
+        if not client.connect(app_id):
+            return {"error": f"Failed to connect to app: {app_id}"}
+
+        result = client.create_variable(
+            name=name,
+            definition=definition,
+            comment=comment,
+        )
+
+        return {
+            **result,
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    except Exception as e:
+        return {
+            "error": str(e),
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    finally:
+        client.disconnect()
+
+
+async def create_dimension(
+    app_id: str,
+    title: str,
+    field_def: str | list[str],
+    description: str = "",
+    tags: list[str] | None = None,
+    grouping: str = "N",
+) -> dict[str, Any]:
+    """Create a new master dimension in a Qlik Sense application."""
+    client = QlikClient()
+
+    try:
+        if not client.connect(app_id):
+            return {"error": f"Failed to connect to app: {app_id}"}
+
+        result = client.create_dimension(
+            title=title,
+            field_def=field_def,
+            description=description,
+            tags=tags,
+            grouping=grouping,
+        )
+
+        return {
+            **result,
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    except Exception as e:
+        return {
+            "error": str(e),
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    finally:
+        client.disconnect()
+
+
+async def create_sheet(
+    app_id: str,
+    title: str,
+    description: str = "",
+) -> dict[str, Any]:
+    """Create a new sheet in a Qlik Sense application."""
+    client = QlikClient()
+
+    try:
+        if not client.connect(app_id):
+            return {"error": f"Failed to connect to app: {app_id}"}
+
+        result = client.create_sheet(
+            title=title,
+            description=description,
+        )
+
+        return {
+            **result,
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    except Exception as e:
+        return {
+            "error": str(e),
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    finally:
+        client.disconnect()
+
+
+async def create_object(
+    app_id: str,
+    object_type: str,
+    title: str,
+    properties: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Create a generic object (visualization) in a Qlik Sense application."""
+    client = QlikClient()
+
+    try:
+        if not client.connect(app_id):
+            return {"error": f"Failed to connect to app: {app_id}"}
+
+        result = client.create_object(
+            object_type=object_type,
+            title=title,
+            properties=properties,
+        )
+
+        return {
+            **result,
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    except Exception as e:
+        return {
+            "error": str(e),
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    finally:
+        client.disconnect()
+
+
+async def set_script(
+    app_id: str,
+    script: str,
+) -> dict[str, Any]:
+    """Set the data load script for a Qlik Sense application."""
+    client = QlikClient()
+
+    try:
+        if not client.connect(app_id):
+            return {"error": f"Failed to connect to app: {app_id}"}
+
+        result = client.set_script(script=script)
+
+        return {
+            **result,
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    except Exception as e:
+        return {
+            "error": str(e),
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    finally:
+        client.disconnect()
+
+
+async def save_app(app_id: str) -> dict[str, Any]:
+    """Save a Qlik Sense application."""
+    client = QlikClient()
+
+    try:
+        if not client.connect(app_id):
+            return {"error": f"Failed to connect to app: {app_id}"}
+
+        result = client.save_app()
+
+        return {
+            **result,
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    except Exception as e:
+        return {
+            "error": str(e),
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    finally:
+        client.disconnect()
+
+
+async def reload_app(app_id: str) -> dict[str, Any]:
+    """Trigger a data reload for a Qlik Sense application."""
+    client = QlikClient()
+
+    try:
+        if not client.connect(app_id):
+            return {"error": f"Failed to connect to app: {app_id}"}
+
+        result = client.do_reload()
+
+        return {
+            **result,
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    except Exception as e:
+        return {
+            "error": str(e),
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    finally:
+        client.disconnect()
+

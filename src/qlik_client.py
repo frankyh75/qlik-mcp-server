@@ -1607,6 +1607,288 @@ class QlikClient:
         # Everything else
         return "other"
 
+    # ============================================
+    # WRITE Methods
+    # ============================================
+
+    def create_measure(
+        self,
+        title: str,
+        expression: str,
+        description: str = "",
+        label: str = "",
+        tags: list[str] | None = None,
+        measure_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Create a new master measure in the app.
+
+        Args:
+            title: Measure title/name
+            expression: Qlik expression (e.g., "Sum(Sales)")
+            description: Optional description
+            label: Optional display label
+            tags: Optional list of tags
+            measure_id: Optional custom ID (auto-generated if not provided)
+
+        Returns:
+            Dict with created measure info including qId
+        """
+        if not self.app_handle:
+            raise ConnectionError("Not connected to an app")
+
+        q_prop = {
+            "qInfo": {"qType": "measure"},
+            "qMeasure": {
+                "qLabel": label or title,
+                "qDef": expression,
+                "qGrouping": "N",
+                "qExpressions": [],
+                "qActiveExpression": 0,
+            },
+            "qMetaDef": {
+                "title": title,
+                "description": description,
+                "tags": tags or [],
+            },
+        }
+
+        if measure_id:
+            q_prop["qInfo"]["qId"] = measure_id
+
+        result = self._send_request("CreateMeasure", self.app_handle, {"qProp": q_prop})
+
+        if result and "qReturn" in result:
+            return {
+                "success": True,
+                "measure_id": result["qReturn"].get("qGenericId"),
+                "title": title,
+                "expression": expression,
+            }
+
+        return {"success": False, "error": "Failed to create measure"}
+
+    def create_variable(
+        self,
+        name: str,
+        definition: str = "",
+        comment: str = "",
+        variable_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Create a new variable in the app.
+
+        Args:
+            name: Variable name (case sensitive)
+            definition: Variable value or expression
+            comment: Optional comment/description
+            variable_id: Optional custom ID
+
+        Returns:
+            Dict with created variable info
+        """
+        if not self.app_handle:
+            raise ConnectionError("Not connected to an app")
+
+        q_prop = {
+            "qInfo": {"qType": "variable"},
+            "qName": name,
+            "qComment": comment,
+        }
+
+        if definition:
+            q_prop["qDefinition"] = definition
+
+        if variable_id:
+            q_prop["qInfo"]["qId"] = variable_id
+
+        result = self._send_request("CreateVariableEx", self.app_handle, {"qProp": q_prop})
+
+        if result and "qReturn" in result:
+            return {
+                "success": True,
+                "variable_name": name,
+                "definition": definition,
+            }
+
+        return {"success": False, "error": "Failed to create variable"}
+
+    def create_dimension(
+        self,
+        title: str,
+        field_def: str | list[str],
+        description: str = "",
+        tags: list[str] | None = None,
+        grouping: str = "N",
+        dimension_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Create a new master dimension in the app.
+
+        Args:
+            title: Dimension title/name
+            field_def: Field name(s) - can be string or list
+            description: Optional description
+            tags: Optional list of tags
+            grouping: Grouping type: "N" (None), "H" (Drill-down)
+            dimension_id: Optional custom ID
+
+        Returns:
+            Dict with created dimension info
+        """
+        if not self.app_handle:
+            raise ConnectionError("Not connected to an app")
+
+        if isinstance(field_def, str):
+            field_defs = [field_def]
+            field_labels = [title]
+        else:
+            field_defs = field_def
+            field_labels = field_def
+
+        q_prop = {
+            "qInfo": {"qType": "dimension"},
+            "qDim": {
+                "qGrouping": grouping,
+                "qFieldDefs": field_defs,
+                "qFieldLabels": field_labels,
+                "qLabelExpression": "",
+            },
+            "qMetaDef": {
+                "title": title,
+                "description": description,
+                "tags": tags or [],
+            },
+        }
+
+        if dimension_id:
+            q_prop["qInfo"]["qId"] = dimension_id
+
+        result = self._send_request("CreateDimension", self.app_handle, {"qProp": q_prop})
+
+        if result and "qReturn" in result:
+            return {
+                "success": True,
+                "dimension_id": result["qReturn"].get("qGenericId"),
+                "title": title,
+                "field_defs": field_defs,
+            }
+
+        return {"success": False, "error": "Failed to create dimension"}
+
+    def create_object(
+        self,
+        object_type: str,
+        title: str,
+        properties: dict[str, Any] | None = None,
+        object_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Create a generic object (sheet, chart, table, etc.) in the app.
+
+        Args:
+            object_type: Type of object (sheet, barchart, linechart, table, etc.)
+            title: Object title
+            properties: Additional object-specific properties
+            object_id: Optional custom ID
+
+        Returns:
+            Dict with created object info
+        """
+        if not self.app_handle:
+            raise ConnectionError("Not connected to an app")
+
+        q_prop = {
+            "qInfo": {"qType": object_type},
+            "qMetaDef": {"title": title},
+        }
+
+        if properties:
+            q_prop.update(properties)
+
+        if object_id:
+            q_prop["qInfo"]["qId"] = object_id
+
+        result = self._send_request("CreateObject", self.app_handle, {"qProp": q_prop})
+
+        if result and "qReturn" in result:
+            return {
+                "success": True,
+                "object_id": result["qReturn"].get("qGenericId"),
+                "object_type": object_type,
+                "title": title,
+            }
+
+        return {"success": False, "error": "Failed to create object"}
+
+    def create_sheet(
+        self,
+        title: str,
+        description: str = "",
+        sheet_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Create a new sheet in the app.
+
+        Args:
+            title: Sheet title
+            description: Optional description
+            sheet_id: Optional custom ID
+
+        Returns:
+            Dict with created sheet info
+        """
+        properties = {
+            "rank": 0,
+            "columns": 24,
+            "rows": 12,
+        }
+
+        if description:
+            properties["qMetaDef"]["description"] = description
+
+        return self.create_object("sheet", title, properties, sheet_id)
+
+    def set_script(self, script: str) -> dict[str, Any]:
+        """Set the data load script for the app.
+
+        Args:
+            script: Complete load script content
+
+        Returns:
+            Dict with success status
+        """
+        if not self.app_handle:
+            raise ConnectionError("Not connected to an app")
+
+        result = self._send_request("SetScript", self.app_handle, {"qScript": script})
+
+        return {"success": True, "script_length": len(script)}
+
+    def save_app(self) -> dict[str, Any]:
+        """Save the app.
+
+        Returns:
+            Dict with success status
+        """
+        if not self.app_handle:
+            raise ConnectionError("Not connected to an app")
+
+        result = self._send_request("Save", self.app_handle)
+
+        return {"success": True}
+
+    def do_reload(self) -> dict[str, Any]:
+        """Reload the app data.
+
+        Returns:
+            Dict with success status
+        """
+        if not self.app_handle:
+            raise ConnectionError("Not connected to an app")
+
+        result = self._send_request("DoReload", self.app_handle)
+
+        if result and "qReturn" in result:
+            return {"success": result["qReturn"]}
+
+        return {"success": False}
+
     def _send_request(self, method: str, handle: int = -1, params: Any | None = None) -> dict[str, Any]:
         """Send JSON-RPC request and wait for response"""
         if not self.ws:
