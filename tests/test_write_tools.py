@@ -8,14 +8,11 @@ from src.tools import (
     CreateDimensionArgs,
     CreateSheetArgs,
     CreateObjectArgs,
-    SetScriptArgs,
-    create_measure,
-    create_variable,
-    create_dimension,
-    create_sheet,
-    create_object,
+    GetSheetLayoutArgs,
+    RepositionSheetObjectArgs,
+    get_sheet_layout,
+    reposition_sheet_object,
 )
-from src.qlik_client import QlikClient
 
 
 class TestCreateMeasureArgs:
@@ -170,6 +167,133 @@ class TestCreateObjectArgs:
             title="Data Table",
         )
         assert args.properties is None
+
+
+class TestGetSheetLayoutArgs:
+    """Tests for GetSheetLayoutArgs validation"""
+
+    def test_valid_args(self):
+        args = GetSheetLayoutArgs(
+            app_id="test-app-id",
+            sheet_id="sheet-123",
+        )
+        assert args.app_id == "test-app-id"
+        assert args.sheet_id == "sheet-123"
+
+    def test_empty_sheet_id_raises(self):
+        with pytest.raises(ValueError):
+            GetSheetLayoutArgs(app_id="test-app-id", sheet_id="")
+
+
+class TestRepositionSheetObjectArgs:
+    """Tests for RepositionSheetObjectArgs validation"""
+
+    def test_valid_args(self):
+        args = RepositionSheetObjectArgs(
+            app_id="test-app-id",
+            sheet_id="sheet-123",
+            object_id="chart-123",
+            column=2,
+            row=3,
+            colspan=8,
+            rowspan=4,
+        )
+        assert args.column == 2
+        assert args.row == 3
+        assert args.colspan == 8
+        assert args.rowspan == 4
+
+    def test_negative_column_raises(self):
+        with pytest.raises(ValueError):
+            RepositionSheetObjectArgs(
+                app_id="test-app-id",
+                sheet_id="sheet-123",
+                object_id="chart-123",
+                column=-1,
+                row=0,
+            )
+
+    def test_zero_colspan_raises(self):
+        with pytest.raises(ValueError):
+            RepositionSheetObjectArgs(
+                app_id="test-app-id",
+                sheet_id="sheet-123",
+                object_id="chart-123",
+                column=0,
+                row=0,
+                colspan=0,
+            )
+
+
+@pytest.mark.asyncio
+async def test_get_sheet_layout_calls_client():
+    """Tool wrapper should call the matching client method and return app context."""
+    with patch("src.tools.QlikClient") as mock_client_cls:
+        mock_client = MagicMock()
+        mock_client.connect.return_value = True
+        mock_client.get_sheet_layout.return_value = {
+            "success": True,
+            "sheet_id": "sheet-123",
+            "objects": [{"object_id": "chart-123"}],
+            "object_count": 1,
+        }
+        mock_client_cls.return_value = mock_client
+
+        result = await get_sheet_layout(app_id="app-123", sheet_id="sheet-123")
+
+        mock_client.connect.assert_called_once_with("app-123")
+        mock_client.get_sheet_layout.assert_called_once_with(sheet_id="sheet-123")
+        mock_client.disconnect.assert_called_once()
+        assert result["success"] is True
+        assert result["app_id"] == "app-123"
+        assert result["sheet_id"] == "sheet-123"
+        assert result["object_count"] == 1
+        assert "timestamp" in result
+
+
+@pytest.mark.asyncio
+async def test_reposition_sheet_object_calls_client():
+    """Tool wrapper should pass through reposition coordinates."""
+    with patch("src.tools.QlikClient") as mock_client_cls:
+        mock_client = MagicMock()
+        mock_client.connect.return_value = True
+        mock_client.reposition_sheet_object.return_value = {
+            "success": True,
+            "sheet_id": "sheet-123",
+            "object_id": "chart-123",
+            "col": 4,
+            "row": 1,
+            "colspan": 10,
+            "rowspan": 5,
+        }
+        mock_client_cls.return_value = mock_client
+
+        result = await reposition_sheet_object(
+            app_id="app-123",
+            sheet_id="sheet-123",
+            object_id="chart-123",
+            column=4,
+            row=1,
+            colspan=10,
+            rowspan=5,
+        )
+
+        mock_client.connect.assert_called_once_with("app-123")
+        mock_client.reposition_sheet_object.assert_called_once_with(
+            sheet_id="sheet-123",
+            object_id="chart-123",
+            col=4,
+            row=1,
+            colspan=10,
+            rowspan=5,
+        )
+        mock_client.disconnect.assert_called_once()
+        assert result["success"] is True
+        assert result["app_id"] == "app-123"
+        assert result["object_id"] == "chart-123"
+        assert result["col"] == 4
+        assert result["row"] == 1
+        assert "timestamp" in result
 
 
 class TestCreateMeasureIntegration:

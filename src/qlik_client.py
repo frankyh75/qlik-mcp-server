@@ -2086,6 +2086,140 @@ class QlikClient:
             "rowspan": rowspan,
         }
 
+    def get_sheet_layout(self, sheet_id: str) -> dict[str, Any]:
+        """Read the current sheet grid layout and child object positions."""
+
+        if not self.app_handle:
+            raise ConnectionError("Not connected to an app")
+
+        sheet_result = self._send_request("GetObject", self.app_handle, [sheet_id])
+        if not sheet_result or "qReturn" not in sheet_result:
+            return {"success": False, "error": f"Sheet {sheet_id} not found"}
+
+        sheet_handle = sheet_result["qReturn"].get("qHandle")
+        layout_result = self._send_request("GetLayout", sheet_handle)
+        layout = layout_result.get("qLayout", layout_result) if layout_result else {}
+        q_meta = layout.get("qMeta", {})
+        child_items = layout.get("qChildList", {}).get("qItems", [])
+
+        objects = []
+        for index, item in enumerate(child_items):
+            q_info = item.get("qInfo", {})
+            q_data = item.get("qData", {})
+            object_id = q_info.get("qId", "")
+
+            obj_data = {
+                "object_id": object_id,
+                "object_type": q_info.get("qType", ""),
+                "column": q_data.get("col", 0),
+                "row": q_data.get("row", 0),
+                "colspan": q_data.get("colspan", 0),
+                "rowspan": q_data.get("rowspan", 0),
+                "index": index,
+            }
+
+            if object_id:
+                try:
+                    object_result = self._send_request("GetObject", self.app_handle, [object_id])
+                    if object_result and "qReturn" in object_result:
+                        object_handle = object_result["qReturn"].get("qHandle")
+                        object_layout_result = self._send_request("GetLayout", object_handle)
+                        object_layout = (
+                            object_layout_result.get("qLayout", object_layout_result)
+                            if object_layout_result else {}
+                        )
+                        if "title" in object_layout:
+                            obj_data["title"] = object_layout["title"]
+                        if "subtitle" in object_layout:
+                            obj_data["subtitle"] = object_layout["subtitle"]
+                except Exception as exc:
+                    print(f"Warning: Could not enrich layout info for object {object_id}: {exc}")
+
+            objects.append(obj_data)
+
+        return {
+            "success": True,
+            "sheet_id": sheet_id,
+            "sheet_title": q_meta.get("title", ""),
+            "description": q_meta.get("description", ""),
+            "rank": layout.get("rank", 0),
+            "columns": layout.get("columns", 24),
+            "rows": layout.get("rows", 12),
+            "objects": objects,
+            "object_count": len(objects),
+        }
+
+    def reposition_sheet_object(
+        self,
+        sheet_id: str,
+        object_id: str,
+        col: int,
+        row: int,
+        colspan: int,
+        rowspan: int,
+    ) -> dict[str, Any]:
+        """Move or resize an existing object placement on a sheet."""
+
+        if not self.app_handle:
+            raise ConnectionError("Not connected to an app")
+
+        sheet_result = self._send_request("GetObject", self.app_handle, [sheet_id])
+        if not sheet_result or "qReturn" not in sheet_result:
+            return {"success": False, "error": f"Sheet {sheet_id} not found"}
+
+        sheet_handle = sheet_result["qReturn"].get("qHandle")
+        layout_result = self._send_request("GetLayout", sheet_handle)
+        layout = layout_result.get("qLayout", layout_result) if layout_result else {}
+        child_items = layout.get("qChildList", {}).get("qItems", [])
+
+        updated = False
+        previous_position = None
+
+        for item in child_items:
+            q_info = item.get("qInfo", {})
+            if q_info.get("qId") != object_id:
+                continue
+
+            q_data = item.setdefault("qData", {})
+            previous_position = {
+                "col": q_data.get("col", 0),
+                "row": q_data.get("row", 0),
+                "colspan": q_data.get("colspan", 0),
+                "rowspan": q_data.get("rowspan", 0),
+            }
+            q_data["col"] = col
+            q_data["row"] = row
+            q_data["colspan"] = colspan
+            q_data["rowspan"] = rowspan
+            updated = True
+            break
+
+        if not updated:
+            return {
+                "success": False,
+                "error": f"Object {object_id} is not placed on sheet {sheet_id}",
+            }
+
+        patches = [
+            {
+                "qPath": "/qChildList/qItems",
+                "qOp": "replace",
+                "qValue": json.dumps(child_items),
+            }
+        ]
+        self._send_request("ApplyPatches", sheet_handle, {"qPatches": patches})
+
+        return {
+            "success": True,
+            "sheet_id": sheet_id,
+            "object_id": object_id,
+            "previous_position": previous_position,
+            "col": col,
+            "row": row,
+            "colspan": colspan,
+            "rowspan": rowspan,
+        }
+
     def set_script(self, script: str) -> dict[str, Any]:
         """Set the data load script for the app.
 
@@ -2098,7 +2232,7 @@ class QlikClient:
         if not self.app_handle:
             raise ConnectionError("Not connected to an app")
 
-        result = self._send_request("SetScript", self.app_handle, {"qScript": script})
+        self._send_request("SetScript", self.app_handle, {"qScript": script})
 
         return {"success": True, "script_length": len(script)}
 
@@ -2111,7 +2245,7 @@ class QlikClient:
         if not self.app_handle:
             raise ConnectionError("Not connected to an app")
 
-        result = self._send_request("Save", self.app_handle)
+        self._send_request("Save", self.app_handle)
 
         return {"success": True}
 

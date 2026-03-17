@@ -31,7 +31,9 @@ from .tools import (
     GetAppScriptArgs,
     GetAppSheetsArgs,
     GetAppVariablesArgs,
+    GetSheetLayoutArgs,
     GetSheetObjectsArgs,
+    RepositionSheetObjectArgs,
     ReloadAppArgs,
     SaveAppArgs,
     SetScriptArgs,
@@ -47,8 +49,10 @@ from .tools import (
     get_app_script,
     get_app_sheets,
     get_app_variables,
+    get_sheet_layout,
     get_sheet_objects,
     list_qlik_applications,
+    reposition_sheet_object,
     update_measure,
     delete_measure,
     update_variable,
@@ -476,7 +480,7 @@ async def handle_create_measure(args: CreateMeasureArgs) -> dict[str, Any]:
         if "error" in result:
             print(f"❌ Error: {result['error']}", file=sys.stderr)
         else:
-            print(f"✅ Measure created successfully", file=sys.stderr)
+            print("✅ Measure created successfully", file=sys.stderr)
 
         return result
 
@@ -505,7 +509,7 @@ async def handle_create_variable(args: CreateVariableArgs) -> dict[str, Any]:
         if "error" in result:
             print(f"❌ Error: {result['error']}", file=sys.stderr)
         else:
-            print(f"✅ Variable created successfully", file=sys.stderr)
+            print("✅ Variable created successfully", file=sys.stderr)
 
         return result
 
@@ -536,7 +540,7 @@ async def handle_create_dimension(args: CreateDimensionArgs) -> dict[str, Any]:
         if "error" in result:
             print(f"❌ Error: {result['error']}", file=sys.stderr)
         else:
-            print(f"✅ Dimension created successfully", file=sys.stderr)
+            print("✅ Dimension created successfully", file=sys.stderr)
 
         return result
 
@@ -564,7 +568,7 @@ async def handle_create_sheet(args: CreateSheetArgs) -> dict[str, Any]:
         if "error" in result:
             print(f"❌ Error: {result['error']}", file=sys.stderr)
         else:
-            print(f"✅ Sheet created successfully", file=sys.stderr)
+            print("✅ Sheet created successfully", file=sys.stderr)
 
         return result
 
@@ -593,7 +597,7 @@ async def handle_create_object(args: CreateObjectArgs) -> dict[str, Any]:
         if "error" in result:
             print(f"❌ Error: {result['error']}", file=sys.stderr)
         else:
-            print(f"✅ Object created successfully", file=sys.stderr)
+            print("✅ Object created successfully", file=sys.stderr)
 
         return result
 
@@ -625,7 +629,7 @@ async def handle_update_measure(args: UpdateMeasureArgs) -> dict[str, Any]:
         if "error" in result:
             print(f"❌ Error: {result['error']}", file=sys.stderr)
         else:
-            print(f"✅ Measure updated successfully", file=sys.stderr)
+            print("✅ Measure updated successfully", file=sys.stderr)
 
         return result
 
@@ -652,7 +656,7 @@ async def handle_delete_measure(args: DeleteMeasureArgs) -> dict[str, Any]:
         if "error" in result:
             print(f"❌ Error: {result['error']}", file=sys.stderr)
         else:
-            print(f"✅ Measure deleted", file=sys.stderr)
+            print("✅ Measure deleted", file=sys.stderr)
 
         return result
 
@@ -680,7 +684,7 @@ async def handle_update_variable(args: UpdateVariableArgs) -> dict[str, Any]:
         if "error" in result:
             print(f"❌ Error: {result['error']}", file=sys.stderr)
         else:
-            print(f"✅ Variable updated", file=sys.stderr)
+            print("✅ Variable updated", file=sys.stderr)
 
         return result
 
@@ -707,7 +711,7 @@ async def handle_delete_variable(args: DeleteVariableArgs) -> dict[str, Any]:
         if "error" in result:
             print(f"❌ Error: {result['error']}", file=sys.stderr)
         else:
-            print(f"✅ Variable deleted", file=sys.stderr)
+            print("✅ Variable deleted", file=sys.stderr)
 
         return result
 
@@ -739,7 +743,7 @@ async def handle_update_dimension(args: UpdateDimensionArgs) -> dict[str, Any]:
         if "error" in result:
             print(f"❌ Error: {result['error']}", file=sys.stderr)
         else:
-            print(f"✅ Dimension updated", file=sys.stderr)
+            print("✅ Dimension updated", file=sys.stderr)
 
         return result
 
@@ -766,7 +770,7 @@ async def handle_delete_dimension(args: DeleteDimensionArgs) -> dict[str, Any]:
         if "error" in result:
             print(f"❌ Error: {result['error']}", file=sys.stderr)
         else:
-            print(f"✅ Dimension deleted", file=sys.stderr)
+            print("✅ Dimension deleted", file=sys.stderr)
 
         return result
 
@@ -798,7 +802,7 @@ async def handle_add_object_to_sheet(args: AddObjectToSheetArgs) -> dict[str, An
         if "error" in result:
             print(f"❌ Error: {result['error']}", file=sys.stderr)
         else:
-            print(f"✅ Object added to sheet", file=sys.stderr)
+            print("✅ Object added to sheet", file=sys.stderr)
 
         return result
 
@@ -809,6 +813,71 @@ async def handle_add_object_to_sheet(args: AddObjectToSheetArgs) -> dict[str, An
             "sheet_id": args.sheet_id,
         }
         print(f"❌ Unexpected add-to-sheet error: {e}", file=sys.stderr)
+        return error_response
+
+
+@mcp.tool()
+async def handle_get_sheet_layout(args: GetSheetLayoutArgs) -> dict[str, Any]:
+    """Read the current sheet layout grid and placed object positions."""
+    print(f"🧭 Reading layout for sheet '{args.sheet_id}' in app: {args.app_id}", file=sys.stderr)
+
+    try:
+        result = await get_sheet_layout(
+            app_id=args.app_id,
+            sheet_id=args.sheet_id,
+        )
+
+        if "error" in result:
+            print(f"❌ Error: {result['error']}", file=sys.stderr)
+        else:
+            print(f"✅ Retrieved layout for {result.get('object_count', 0)} objects", file=sys.stderr)
+
+        return result
+
+    except Exception as e:
+        error_response = {
+            "error": f"Unexpected error: {e!s}",
+            "app_id": args.app_id,
+            "sheet_id": args.sheet_id,
+        }
+        print(f"❌ Unexpected get-sheet-layout error: {e}", file=sys.stderr)
+        return error_response
+
+
+@mcp.tool()
+async def handle_reposition_sheet_object(args: RepositionSheetObjectArgs) -> dict[str, Any]:
+    """Move or resize an object already placed on a sheet."""
+    print(
+        f"📐 Repositioning object '{args.object_id}' on sheet '{args.sheet_id}' in app: {args.app_id}",
+        file=sys.stderr,
+    )
+
+    try:
+        result = await reposition_sheet_object(
+            app_id=args.app_id,
+            sheet_id=args.sheet_id,
+            object_id=args.object_id,
+            column=args.column,
+            row=args.row,
+            colspan=args.colspan,
+            rowspan=args.rowspan,
+        )
+
+        if "error" in result:
+            print(f"❌ Error: {result['error']}", file=sys.stderr)
+        else:
+            print("✅ Object repositioned successfully", file=sys.stderr)
+
+        return result
+
+    except Exception as e:
+        error_response = {
+            "error": f"Unexpected error: {e!s}",
+            "app_id": args.app_id,
+            "sheet_id": args.sheet_id,
+            "object_id": args.object_id,
+        }
+        print(f"❌ Unexpected reposition error: {e}", file=sys.stderr)
         return error_response
 
 
@@ -826,7 +895,7 @@ async def handle_set_script(args: SetScriptArgs) -> dict[str, Any]:
         if "error" in result:
             print(f"❌ Error: {result['error']}", file=sys.stderr)
         else:
-            print(f"✅ Script set successfully", file=sys.stderr)
+            print("✅ Script set successfully", file=sys.stderr)
 
         return result
 
@@ -850,7 +919,7 @@ async def handle_save_app(args: SaveAppArgs) -> dict[str, Any]:
         if "error" in result:
             print(f"❌ Error: {result['error']}", file=sys.stderr)
         else:
-            print(f"✅ App saved successfully", file=sys.stderr)
+            print("✅ App saved successfully", file=sys.stderr)
 
         return result
 
@@ -874,7 +943,7 @@ async def handle_reload_app(args: ReloadAppArgs) -> dict[str, Any]:
         if "error" in result:
             print(f"❌ Error: {result['error']}", file=sys.stderr)
         else:
-            print(f"✅ App reload triggered successfully", file=sys.stderr)
+            print("✅ App reload triggered successfully", file=sys.stderr)
 
         return result
 

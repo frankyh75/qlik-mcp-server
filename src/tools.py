@@ -1615,6 +1615,73 @@ class AddObjectToSheetArgs(BaseModel):
         return v.strip()
 
 
+class GetSheetLayoutArgs(BaseModel):
+    """Read the current layout grid for a sheet and its placed objects."""
+
+    app_id: Annotated[str, Field(
+        description="Qlik Sense application ID",
+        min_length=1,
+        max_length=255,
+    )]
+    sheet_id: Annotated[str, Field(
+        description="Sheet ID to inspect",
+        min_length=1,
+        max_length=255,
+    )]
+
+    @field_validator("app_id", "sheet_id")
+    @classmethod
+    def _validate_non_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Field cannot be empty")
+        return v.strip()
+
+
+class RepositionSheetObjectArgs(BaseModel):
+    """Move or resize an object already placed on a Qlik Sense sheet."""
+
+    app_id: Annotated[str, Field(
+        description="Qlik Sense application ID",
+        min_length=1,
+        max_length=255,
+    )]
+    sheet_id: Annotated[str, Field(
+        description="Sheet ID containing the object",
+        min_length=1,
+        max_length=255,
+    )]
+    object_id: Annotated[str, Field(
+        description="Object ID (qId) already placed on the sheet",
+        min_length=1,
+        max_length=255,
+    )]
+    column: Annotated[int, Field(
+        description="New column position on the sheet (0-indexed)",
+        ge=0,
+    )]
+    row: Annotated[int, Field(
+        description="New row position on the sheet (0-indexed)",
+        ge=0,
+    )]
+    colspan: Annotated[int, Field(
+        default=6,
+        description="Updated column span for the object",
+        ge=1,
+    )] = 6
+    rowspan: Annotated[int, Field(
+        default=6,
+        description="Updated row span for the object",
+        ge=1,
+    )] = 6
+
+    @field_validator("app_id", "sheet_id", "object_id")
+    @classmethod
+    def _validate_non_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Field cannot be empty")
+        return v.strip()
+
+
 class SetScriptArgs(BaseModel):
     """Set the data load script for a Qlik Sense application.
 
@@ -2117,6 +2184,78 @@ async def add_object_to_sheet(
         client.disconnect()
 
 
+async def get_sheet_layout(
+    app_id: str,
+    sheet_id: str,
+) -> dict[str, Any]:
+    """Read sheet grid layout and object placements."""
+    client = QlikClient()
+
+    try:
+        if not client.connect(app_id):
+            return {"error": f"Failed to connect to app: {app_id}"}
+
+        result = client.get_sheet_layout(sheet_id=sheet_id)
+
+        return {
+            **result,
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    except Exception as e:
+        return {
+            "error": str(e),
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    finally:
+        client.disconnect()
+
+
+async def reposition_sheet_object(
+    app_id: str,
+    sheet_id: str,
+    object_id: str,
+    column: int,
+    row: int,
+    colspan: int = 6,
+    rowspan: int = 6,
+) -> dict[str, Any]:
+    """Move or resize an object already placed on a sheet."""
+    client = QlikClient()
+
+    try:
+        if not client.connect(app_id):
+            return {"error": f"Failed to connect to app: {app_id}"}
+
+        result = client.reposition_sheet_object(
+            sheet_id=sheet_id,
+            object_id=object_id,
+            col=column,
+            row=row,
+            colspan=colspan,
+            rowspan=rowspan,
+        )
+
+        return {
+            **result,
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    except Exception as e:
+        return {
+            "error": str(e),
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    finally:
+        client.disconnect()
+
+
 async def set_script(
     app_id: str,
     script: str,
@@ -2199,4 +2338,3 @@ async def reload_app(app_id: str) -> dict[str, Any]:
 
     finally:
         client.disconnect()
-
