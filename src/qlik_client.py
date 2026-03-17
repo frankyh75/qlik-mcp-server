@@ -1667,6 +1667,78 @@ class QlikClient:
 
         return {"success": False, "error": "Failed to create measure"}
 
+    def update_measure(
+        self,
+        measure_id: str,
+        title: str | None = None,
+        expression: str | None = None,
+        description: str | None = None,
+        label: str | None = None,
+        tags: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Update an existing master measure in the app."""
+
+        if not self.app_handle:
+            raise ConnectionError("Not connected to an app")
+
+        q_prop: dict[str, Any] = {
+            "qInfo": {
+                "qType": "measure",
+                "qId": measure_id,
+            },
+            "qMeasure": {
+                "qGrouping": "N",
+                "qExpressions": [],
+                "qActiveExpression": 0,
+            },
+            "qMetaDef": {},
+        }
+
+        if expression is not None:
+            q_prop["qMeasure"]["qDef"] = expression
+
+        if label is not None:
+            q_prop["qMeasure"]["qLabel"] = label
+
+        if title is not None:
+            q_prop["qMetaDef"]["title"] = title
+
+        if description is not None:
+            q_prop["qMetaDef"]["description"] = description
+
+        if tags is not None:
+            q_prop["qMetaDef"]["tags"] = tags
+
+        result = self._send_request("UpdateMeasure", self.app_handle, {"qProp": q_prop})
+
+        if result and "qReturn" in result:
+            return {
+                "success": True,
+                "measure_id": measure_id,
+            }
+
+        return {"success": False, "error": "Failed to update measure"}
+
+    def delete_measure(self, measure_id: str) -> dict[str, Any]:
+        """Delete a master measure from the app."""
+
+        if not self.app_handle:
+            raise ConnectionError("Not connected to an app")
+
+        q_prop = {
+            "qInfo": {
+                "qType": "measure",
+                "qId": measure_id,
+            }
+        }
+
+        result = self._send_request("DestroyMeasure", self.app_handle, {"qProp": q_prop})
+
+        if result and "qReturn" in result:
+            return {"success": True, "measure_id": measure_id}
+
+        return {"success": False, "error": "Failed to delete measure"}
+
     def create_variable(
         self,
         name: str,
@@ -1710,6 +1782,43 @@ class QlikClient:
             }
 
         return {"success": False, "error": "Failed to create variable"}
+
+    def update_variable(
+        self,
+        name: str,
+        definition: str | None = None,
+    ) -> dict[str, Any]:
+        """Update a variable definition in the app."""
+
+        if not self.app_handle:
+            raise ConnectionError("Not connected to an app")
+
+        params: dict[str, Any] = {
+            "qName": name,
+        }
+
+        if definition is not None:
+            params["qValue"] = definition
+
+        result = self._send_request("SetVariable", self.app_handle, params)
+
+        if result and "qReturn" in result:
+            return {"success": True, "variable_name": name}
+
+        return {"success": False, "error": "Failed to update variable"}
+
+    def delete_variable(self, name: str) -> dict[str, Any]:
+        """Delete a variable from the app."""
+
+        if not self.app_handle:
+            raise ConnectionError("Not connected to an app")
+
+        result = self._send_request("DestroyVariable", self.app_handle, {"qName": name})
+
+        if result and "qReturn" in result:
+            return {"success": True, "variable_name": name}
+
+        return {"success": False, "error": "Failed to delete variable"}
 
     def create_dimension(
         self,
@@ -1772,6 +1881,76 @@ class QlikClient:
             }
 
         return {"success": False, "error": "Failed to create dimension"}
+
+    def update_dimension(
+        self,
+        dimension_id: str,
+        title: str | None = None,
+        field_def: str | list[str] | None = None,
+        description: str | None = None,
+        tags: list[str] | None = None,
+        grouping: str | None = None,
+    ) -> dict[str, Any]:
+        """Update a master dimension in the app."""
+
+        if not self.app_handle:
+            raise ConnectionError("Not connected to an app")
+
+        q_prop: dict[str, Any] = {
+            "qInfo": {
+                "qType": "dimension",
+                "qId": dimension_id,
+            },
+            "qDim": {},
+            "qMetaDef": {},
+        }
+
+        if field_def is not None:
+            if isinstance(field_def, str):
+                q_prop["qDim"]["qFieldDefs"] = [field_def]
+                q_prop["qDim"]["qFieldLabels"] = [field_def]
+            else:
+                q_prop["qDim"]["qFieldDefs"] = field_def
+                q_prop["qDim"]["qFieldLabels"] = field_def
+
+        if grouping is not None:
+            q_prop["qDim"]["qGrouping"] = grouping
+
+        if title is not None:
+            q_prop["qMetaDef"]["title"] = title
+
+        if description is not None:
+            q_prop["qMetaDef"]["description"] = description
+
+        if tags is not None:
+            q_prop["qMetaDef"]["tags"] = tags
+
+        result = self._send_request("UpdateDimension", self.app_handle, {"qProp": q_prop})
+
+        if result and "qReturn" in result:
+            return {"success": True, "dimension_id": dimension_id}
+
+        return {"success": False, "error": "Failed to update dimension"}
+
+    def delete_dimension(self, dimension_id: str) -> dict[str, Any]:
+        """Delete a master dimension from the app."""
+
+        if not self.app_handle:
+            raise ConnectionError("Not connected to an app")
+
+        q_prop = {
+            "qInfo": {
+                "qType": "dimension",
+                "qId": dimension_id,
+            }
+        }
+
+        result = self._send_request("DestroyDimension", self.app_handle, {"qProp": q_prop})
+
+        if result and "qReturn" in result:
+            return {"success": True, "dimension_id": dimension_id}
+
+        return {"success": False, "error": "Failed to delete dimension"}
 
     def create_object(
         self,
@@ -1843,6 +2022,69 @@ class QlikClient:
             properties["qMetaDef"]["description"] = description
 
         return self.create_object("sheet", title, properties, sheet_id)
+
+    def add_object_to_sheet(
+        self,
+        sheet_id: str,
+        object_id: str,
+        col: int = 0,
+        row: int = 0,
+        colspan: int = 6,
+        rowspan: int = 6,
+    ) -> dict[str, Any]:
+        """Place an existing object onto a specific sheet."""
+
+        if not self.app_handle:
+            raise ConnectionError("Not connected to an app")
+
+        sheet_result = self._send_request("GetObject", self.app_handle, [sheet_id])
+        if not sheet_result or "qReturn" not in sheet_result:
+            return {"success": False, "error": f"Sheet {sheet_id} not found"}
+
+        sheet_handle = sheet_result["qReturn"].get("qHandle")
+        layout_result = self._send_request("GetLayout", sheet_handle)
+        layout = layout_result.get("qLayout", layout_result) if layout_result else {}
+        child_list = layout.get("qChildList", {}).get("qItems", [])
+
+        # Prevent duplicate placements
+        if any(item.get("qInfo", {}).get("qId") == object_id for item in child_list):
+            return {"success": False, "error": "Object already on sheet"}
+
+        object_info_result = self._send_request("GetObject", self.app_handle, [object_id])
+        if not object_info_result or "qReturn" not in object_info_result:
+            return {"success": False, "error": f"Object {object_id} not found"}
+
+        object_info = object_info_result["qReturn"].get("qInfo", {})
+        new_item = {
+            "qInfo": object_info,
+            "qData": {
+                "col": col,
+                "row": row,
+                "colspan": colspan,
+                "rowspan": rowspan,
+            },
+        }
+
+        child_list.append(new_item)
+        patches = [
+            {
+                "qPath": "/qChildList/qItems",
+                "qOp": "replace",
+                "qValue": json.dumps(child_list),
+            }
+        ]
+
+        self._send_request("ApplyPatches", sheet_handle, {"qPatches": patches})
+
+        return {
+            "success": True,
+            "sheet_id": sheet_id,
+            "object_id": object_id,
+            "col": col,
+            "row": row,
+            "colspan": colspan,
+            "rowspan": rowspan,
+        }
 
     def set_script(self, script: str) -> dict[str, Any]:
         """Set the data load script for the app.

@@ -17,6 +17,13 @@ from .tools import (
     CreateObjectArgs,
     CreateSheetArgs,
     CreateVariableArgs,
+    UpdateMeasureArgs,
+    DeleteMeasureArgs,
+    UpdateVariableArgs,
+    DeleteVariableArgs,
+    UpdateDimensionArgs,
+    DeleteDimensionArgs,
+    AddObjectToSheetArgs,
     GetAppDataSourcesArgs,
     GetAppDimensionsArgs,
     GetAppFieldsArgs,
@@ -42,6 +49,13 @@ from .tools import (
     get_app_variables,
     get_sheet_objects,
     list_qlik_applications,
+    update_measure,
+    delete_measure,
+    update_variable,
+    delete_variable,
+    update_dimension,
+    delete_dimension,
+    add_object_to_sheet,
     reload_app,
     save_app,
     set_script,
@@ -589,6 +603,212 @@ async def handle_create_object(args: CreateObjectArgs) -> dict[str, Any]:
             "app_id": args.app_id,
         }
         print(f"❌ Unexpected error: {e}", file=sys.stderr)
+        return error_response
+
+
+@mcp.tool()
+async def handle_update_measure(args: UpdateMeasureArgs) -> dict[str, Any]:
+    """Update an existing master measure."""
+    print(f"✏️ Updating measure '{args.measure_id}' in app: {args.app_id}", file=sys.stderr)
+
+    try:
+        result = await update_measure(
+            app_id=args.app_id,
+            measure_id=args.measure_id,
+            title=args.title,
+            expression=args.expression,
+            description=args.description,
+            label=args.label,
+            tags=args.tags,
+        )
+
+        if "error" in result:
+            print(f"❌ Error: {result['error']}", file=sys.stderr)
+        else:
+            print(f"✅ Measure updated successfully", file=sys.stderr)
+
+        return result
+
+    except Exception as e:
+        error_response = {
+            "error": f"Unexpected error: {e!s}",
+            "app_id": args.app_id,
+        }
+        print(f"❌ Unexpected update error: {e}", file=sys.stderr)
+        return error_response
+
+
+@mcp.tool()
+async def handle_delete_measure(args: DeleteMeasureArgs) -> dict[str, Any]:
+    """Delete a master measure from an application."""
+    print(f"🗑️ Deleting measure '{args.measure_id}' in app: {args.app_id}", file=sys.stderr)
+
+    try:
+        result = await delete_measure(
+            app_id=args.app_id,
+            measure_id=args.measure_id,
+        )
+
+        if "error" in result:
+            print(f"❌ Error: {result['error']}", file=sys.stderr)
+        else:
+            print(f"✅ Measure deleted", file=sys.stderr)
+
+        return result
+
+    except Exception as e:
+        error_response = {
+            "error": f"Unexpected error: {e!s}",
+            "app_id": args.app_id,
+        }
+        print(f"❌ Unexpected delete error: {e}", file=sys.stderr)
+        return error_response
+
+
+@mcp.tool()
+async def handle_update_variable(args: UpdateVariableArgs) -> dict[str, Any]:
+    """Update a variable definition."""
+    print(f"✏️ Updating variable '{args.name}' in app: {args.app_id}", file=sys.stderr)
+
+    try:
+        result = await update_variable(
+            app_id=args.app_id,
+            name=args.name,
+            definition=args.definition,
+        )
+
+        if "error" in result:
+            print(f"❌ Error: {result['error']}", file=sys.stderr)
+        else:
+            print(f"✅ Variable updated", file=sys.stderr)
+
+        return result
+
+    except Exception as e:
+        error_response = {
+            "error": f"Unexpected error: {e!s}",
+            "app_id": args.app_id,
+        }
+        print(f"❌ Unexpected variable update error: {e}", file=sys.stderr)
+        return error_response
+
+
+@mcp.tool()
+async def handle_delete_variable(args: DeleteVariableArgs) -> dict[str, Any]:
+    """Delete a variable from an application."""
+    print(f"🗑️ Deleting variable '{args.name}' in app: {args.app_id}", file=sys.stderr)
+
+    try:
+        result = await delete_variable(
+            app_id=args.app_id,
+            name=args.name,
+        )
+
+        if "error" in result:
+            print(f"❌ Error: {result['error']}", file=sys.stderr)
+        else:
+            print(f"✅ Variable deleted", file=sys.stderr)
+
+        return result
+
+    except Exception as e:
+        error_response = {
+            "error": f"Unexpected error: {e!s}",
+            "app_id": args.app_id,
+        }
+        print(f"❌ Unexpected variable delete error: {e}", file=sys.stderr)
+        return error_response
+
+
+@mcp.tool()
+async def handle_update_dimension(args: UpdateDimensionArgs) -> dict[str, Any]:
+    """Update a master dimension."""
+    print(f"✏️ Updating dimension '{args.dimension_id}' in app: {args.app_id}", file=sys.stderr)
+
+    try:
+        result = await update_dimension(
+            app_id=args.app_id,
+            dimension_id=args.dimension_id,
+            title=args.title,
+            field_def=args.field_def,
+            description=args.description,
+            tags=args.tags,
+            grouping=args.grouping,
+        )
+
+        if "error" in result:
+            print(f"❌ Error: {result['error']}", file=sys.stderr)
+        else:
+            print(f"✅ Dimension updated", file=sys.stderr)
+
+        return result
+
+    except Exception as e:
+        error_response = {
+            "error": f"Unexpected error: {e!s}",
+            "app_id": args.app_id,
+        }
+        print(f"❌ Unexpected dimension update error: {e}", file=sys.stderr)
+        return error_response
+
+
+@mcp.tool()
+async def handle_delete_dimension(args: DeleteDimensionArgs) -> dict[str, Any]:
+    """Delete a master dimension."""
+    print(f"🗑️ Deleting dimension '{args.dimension_id}' in app: {args.app_id}", file=sys.stderr)
+
+    try:
+        result = await delete_dimension(
+            app_id=args.app_id,
+            dimension_id=args.dimension_id,
+        )
+
+        if "error" in result:
+            print(f"❌ Error: {result['error']}", file=sys.stderr)
+        else:
+            print(f"✅ Dimension deleted", file=sys.stderr)
+
+        return result
+
+    except Exception as e:
+        error_response = {
+            "error": f"Unexpected error: {e!s}",
+            "app_id": args.app_id,
+        }
+        print(f"❌ Unexpected dimension delete error: {e}", file=sys.stderr)
+        return error_response
+
+
+@mcp.tool()
+async def handle_add_object_to_sheet(args: AddObjectToSheetArgs) -> dict[str, Any]:
+    """Place an object onto a sheet."""
+    print(f"📋 Adding object '{args.object_id}' to sheet '{args.sheet_id}' in app: {args.app_id}", file=sys.stderr)
+
+    try:
+        result = await add_object_to_sheet(
+            app_id=args.app_id,
+            sheet_id=args.sheet_id,
+            object_id=args.object_id,
+            column=args.column,
+            row=args.row,
+            colspan=args.colspan,
+            rowspan=args.rowspan,
+        )
+
+        if "error" in result:
+            print(f"❌ Error: {result['error']}", file=sys.stderr)
+        else:
+            print(f"✅ Object added to sheet", file=sys.stderr)
+
+        return result
+
+    except Exception as e:
+        error_response = {
+            "error": f"Unexpected error: {e!s}",
+            "app_id": args.app_id,
+            "sheet_id": args.sheet_id,
+        }
+        print(f"❌ Unexpected add-to-sheet error: {e}", file=sys.stderr)
         return error_response
 
 

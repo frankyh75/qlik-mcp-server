@@ -1384,6 +1384,237 @@ class CreateObjectArgs(BaseModel):
         return v.strip()
 
 
+
+class UpdateMeasureArgs(BaseModel):
+    """Update an existing master measure in a Qlik Sense application."""
+
+    app_id: Annotated[str, Field(
+        description="Qlik Sense application ID (GUID format or app name)",
+        min_length=1,
+        max_length=255,
+    )]
+    measure_id: Annotated[str, Field(
+        description="Existing measure ID (qId)",
+        min_length=1,
+        max_length=255,
+    )]
+    title: Annotated[str | None, Field(
+        default=None,
+        description="Optional new title for the measure",
+    )] = None
+    expression: Annotated[str | None, Field(
+        default=None,
+        description="Optional new expression",
+    )] = None
+    description: Annotated[str | None, Field(
+        default=None,
+        description="Optional new description",
+    )] = None
+    label: Annotated[str | None, Field(
+        default=None,
+        description="Optional label override",
+    )] = None
+    tags: Annotated[list[str] | None, Field(
+        default=None,
+        description="Optional tag list",
+    )] = None
+
+    @field_validator("app_id", "measure_id")
+    @classmethod
+    def _validate_non_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Field cannot be empty")
+        return v.strip()
+
+
+class DeleteMeasureArgs(BaseModel):
+    """Delete an existing master measure."""
+
+    app_id: Annotated[str, Field(
+        description="Qlik Sense application ID",
+        min_length=1,
+        max_length=255,
+    )]
+    measure_id: Annotated[str, Field(
+        description="Measure ID (qId)",
+        min_length=1,
+        max_length=255,
+    )]
+
+    @field_validator("app_id", "measure_id")
+    @classmethod
+    def _validate_non_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Field cannot be empty")
+        return v.strip()
+
+
+class UpdateVariableArgs(BaseModel):
+    """Update the definition of an existing variable."""
+
+    app_id: Annotated[str, Field(
+        description="Qlik Sense application ID",
+        min_length=1,
+        max_length=255,
+    )]
+    name: Annotated[str, Field(
+        description="Variable name",
+        min_length=1,
+        max_length=255,
+    )]
+    definition: Annotated[str | None, Field(
+        default=None,
+        description="New definition/value",
+    )] = None
+
+    @field_validator("app_id", "name")
+    @classmethod
+    def _validate_non_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Field cannot be empty")
+        return v.strip()
+
+
+class DeleteVariableArgs(BaseModel):
+    """Delete a variable from an application."""
+
+    app_id: Annotated[str, Field(
+        description="Qlik Sense application ID",
+        min_length=1,
+        max_length=255,
+    )]
+    name: Annotated[str, Field(
+        description="Variable name",
+        min_length=1,
+        max_length=255,
+    )]
+
+    @field_validator("app_id", "name")
+    @classmethod
+    def _validate_non_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Field cannot be empty")
+        return v.strip()
+
+
+class UpdateDimensionArgs(BaseModel):
+    """Update a master dimension."""
+
+    app_id: Annotated[str, Field(
+        description="Qlik Sense application ID",
+        min_length=1,
+        max_length=255,
+    )]
+    dimension_id: Annotated[str, Field(
+        description="Dimension ID (qId)",
+        min_length=1,
+        max_length=255,
+    )]
+    title: Annotated[str | None, Field(
+        default=None,
+        description="Optional new title",
+    )] = None
+    field_def: Annotated[str | list[str] | None, Field(
+        default=None,
+        description="Optional field(s) used by the dimension",
+    )] = None
+    description: Annotated[str | None, Field(
+        default=None,
+        description="Optional description",
+    )] = None
+    tags: Annotated[list[str] | None, Field(
+        default=None,
+        description="Optional tag list",
+    )] = None
+    grouping: Annotated[str | None, Field(
+        default=None,
+        description="Optional grouping ('N' or 'H')",
+    )] = None
+
+    @field_validator("app_id", "dimension_id")
+    @classmethod
+    def _validate_non_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Field cannot be empty")
+        return v.strip()
+
+    @field_validator("grouping")
+    @classmethod
+    def _validate_grouping(cls, v: str | None) -> str | None:
+        if v is not None and v not in ("N", "H"):
+            raise ValueError("grouping must be 'N' or 'H'")
+        return v
+
+
+class DeleteDimensionArgs(BaseModel):
+    """Delete a master dimension."""
+
+    app_id: Annotated[str, Field(
+        description="Qlik Sense application ID",
+        min_length=1,
+        max_length=255,
+    )]
+    dimension_id: Annotated[str, Field(
+        description="Dimension ID (qId)",
+        min_length=1,
+        max_length=255,
+    )]
+
+    @field_validator("app_id", "dimension_id")
+    @classmethod
+    def _validate_non_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Field cannot be empty")
+        return v.strip()
+
+
+class AddObjectToSheetArgs(BaseModel):
+    """Add an existing object to a sheet with positioning hints."""
+
+    app_id: Annotated[str, Field(
+        description="Qlik Sense application ID",
+        min_length=1,
+        max_length=255,
+    )]
+    sheet_id: Annotated[str, Field(
+        description="Sheet ID where the object should land",
+        min_length=1,
+        max_length=255,
+    )]
+    object_id: Annotated[str, Field(
+        description="Object ID (qId) to place",
+        min_length=1,
+        max_length=255,
+    )]
+    column: Annotated[int, Field(
+        default=0,
+        description="Column position on the sheet (0-indexed)",
+        ge=0,
+    )] = 0
+    row: Annotated[int, Field(
+        default=0,
+        description="Row position on the sheet (0-indexed)",
+        ge=0,
+    )] = 0
+    colspan: Annotated[int, Field(
+        default=6,
+        description="Column span the object should occupy",
+        ge=1,
+    )] = 6
+    rowspan: Annotated[int, Field(
+        default=6,
+        description="Row span the object should occupy",
+        ge=1,
+    )] = 6
+
+    @field_validator("app_id", "sheet_id", "object_id")
+    @classmethod
+    def _validate_non_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Field cannot be empty")
+        return v.strip()
+
+
 class SetScriptArgs(BaseModel):
     """Set the data load script for a Qlik Sense application.
 
@@ -1620,6 +1851,253 @@ async def create_object(
             object_type=object_type,
             title=title,
             properties=properties,
+        )
+
+        return {
+            **result,
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    except Exception as e:
+        return {
+            "error": str(e),
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    finally:
+        client.disconnect()
+
+
+async def update_measure(
+    app_id: str,
+    measure_id: str,
+    title: str | None = None,
+    expression: str | None = None,
+    description: str | None = None,
+    label: str | None = None,
+    tags: list[str] | None = None,
+) -> dict[str, Any]:
+    """Update a master measure inside a Qlik Sense application."""
+    client = QlikClient()
+
+    try:
+        if not client.connect(app_id):
+            return {"error": f"Failed to connect to app: {app_id}"}
+
+        result = client.update_measure(
+            measure_id=measure_id,
+            title=title,
+            expression=expression,
+            description=description,
+            label=label,
+            tags=tags,
+        )
+
+        return {
+            **result,
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    except Exception as e:
+        return {
+            "error": str(e),
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    finally:
+        client.disconnect()
+
+
+async def delete_measure(
+    app_id: str,
+    measure_id: str,
+) -> dict[str, Any]:
+    """Delete a master measure from a Qlik Sense application."""
+    client = QlikClient()
+
+    try:
+        if not client.connect(app_id):
+            return {"error": f"Failed to connect to app: {app_id}"}
+
+        result = client.delete_measure(measure_id=measure_id)
+
+        return {
+            **result,
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    except Exception as e:
+        return {
+            "error": str(e),
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    finally:
+        client.disconnect()
+
+
+async def update_variable(
+    app_id: str,
+    name: str,
+    definition: str | None = None,
+) -> dict[str, Any]:
+    """Update a variable definition."""
+    client = QlikClient()
+
+    try:
+        if not client.connect(app_id):
+            return {"error": f"Failed to connect to app: {app_id}"}
+
+        result = client.update_variable(name=name, definition=definition)
+
+        return {
+            **result,
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    except Exception as e:
+        return {
+            "error": str(e),
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    finally:
+        client.disconnect()
+
+
+async def delete_variable(
+    app_id: str,
+    name: str,
+) -> dict[str, Any]:
+    """Delete a variable from the application."""
+    client = QlikClient()
+
+    try:
+        if not client.connect(app_id):
+            return {"error": f"Failed to connect to app: {app_id}"}
+
+        result = client.delete_variable(name=name)
+
+        return {
+            **result,
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    except Exception as e:
+        return {
+            "error": str(e),
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    finally:
+        client.disconnect()
+
+
+async def update_dimension(
+    app_id: str,
+    dimension_id: str,
+    title: str | None = None,
+    field_def: str | list[str] | None = None,
+    description: str | None = None,
+    tags: list[str] | None = None,
+    grouping: str | None = None,
+) -> dict[str, Any]:
+    """Update a master dimension."""
+    client = QlikClient()
+
+    try:
+        if not client.connect(app_id):
+            return {"error": f"Failed to connect to app: {app_id}"}
+
+        result = client.update_dimension(
+            dimension_id=dimension_id,
+            title=title,
+            field_def=field_def,
+            description=description,
+            tags=tags,
+            grouping=grouping,
+        )
+
+        return {
+            **result,
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    except Exception as e:
+        return {
+            "error": str(e),
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    finally:
+        client.disconnect()
+
+
+async def delete_dimension(
+    app_id: str,
+    dimension_id: str,
+) -> dict[str, Any]:
+    """Delete a master dimension."""
+    client = QlikClient()
+
+    try:
+        if not client.connect(app_id):
+            return {"error": f"Failed to connect to app: {app_id}"}
+
+        result = client.delete_dimension(dimension_id=dimension_id)
+
+        return {
+            **result,
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    except Exception as e:
+        return {
+            "error": str(e),
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    finally:
+        client.disconnect()
+
+
+async def add_object_to_sheet(
+    app_id: str,
+    sheet_id: str,
+    object_id: str,
+    column: int = 0,
+    row: int = 0,
+    colspan: int = 6,
+    rowspan: int = 6,
+) -> dict[str, Any]:
+    """Place an existing object onto the requested sheet."""
+    client = QlikClient()
+
+    try:
+        if not client.connect(app_id):
+            return {"error": f"Failed to connect to app: {app_id}"}
+
+        result = client.add_object_to_sheet(
+            sheet_id=sheet_id,
+            object_id=object_id,
+            col=column,
+            row=row,
+            colspan=colspan,
+            rowspan=rowspan,
         )
 
         return {
