@@ -124,6 +124,167 @@ class QlikClient:
         }
 
     @staticmethod
+    def _summarize_field_statistics(field: dict[str, Any]) -> dict[str, Any]:
+        """Trim field payload to the statistics useful for field-level insights."""
+        source_tables = field.get("source_tables", [])
+        return {
+            "name": field.get("name", ""),
+            "cardinal": field.get("cardinal", 0),
+            "table_count": len(source_tables),
+            "is_system": field.get("is_system", False),
+            "is_hidden": field.get("is_hidden", False),
+        }
+
+    def get_field_statistics(
+        self,
+        show_system: bool = True,
+        show_hidden: bool = True,
+        show_derived_fields: bool = True,
+        show_semantic: bool = True,
+        show_implicit: bool = True,
+    ) -> dict[str, Any]:
+        """Return compact field-level statistics derived from the current app data model."""
+        fields_result = self.get_fields(
+            show_system=show_system,
+            show_hidden=show_hidden,
+            show_derived_fields=show_derived_fields,
+            show_semantic=show_semantic,
+            show_src_tables=True,
+            show_implicit=show_implicit,
+        )
+
+        return {
+            "fields": [
+                self._summarize_field_statistics(field)
+                for field in fields_result.get("fields", [])
+            ],
+            "field_count": fields_result.get("field_count", 0),
+            "table_count": fields_result.get("table_count", 0),
+            "tables": fields_result.get("tables", []),
+        }
+
+    @staticmethod
+    def _cell_has_value(cell: dict[str, Any]) -> bool:
+        """Return whether a hypercube cell should count as populated."""
+        if not isinstance(cell, dict):
+            return False
+        if cell.get("qIsNull"):
+            return False
+        if cell.get("qText") not in (None, ""):
+            return True
+        if "qNum" in cell and cell.get("qNum") is not None:
+            return True
+        return False
+
+    @classmethod
+    def _compute_data_density(
+        cls,
+        data_pages: list[dict[str, Any]],
+        total_columns: int,
+    ) -> dict[str, Any]:
+        """Summarize populated vs empty cells from hypercube data pages."""
+        sampled_rows = 0
+        sampled_cells = 0
+        populated_cells = 0
+
+        for page in data_pages:
+            matrix = page.get("qMatrix", [])
+            sampled_rows += len(matrix)
+            for row in matrix:
+                sampled_cells += total_columns
+                populated_cells += sum(1 for cell in row[:total_columns] if cls._cell_has_value(cell))
+
+        empty_cells = max(sampled_cells - populated_cells, 0)
+        density = round(populated_cells / sampled_cells, 4) if sampled_cells else None
+
+        return {
+            "sampled_row_count": sampled_rows,
+            "sampled_cell_count": sampled_cells,
+            "populated_cells": populated_cells,
+            "empty_cells": empty_cells,
+            "density": density,
+        }
+
+    def get_hypercube_summary(self, object_id: str, max_data_rows: int = 1000) -> dict[str, Any]:
+        """Return hypercube metadata and basic health statistics for an object."""
+        if not self.ws or not self.app_handle:
+            raise ConnectionError("Not connected to Qlik Engine")
+
+        object_result = self._send_request("GetObject", self.app_handle, [object_id])
+        if not object_result or "qReturn" not in object_result:
+            raise ValueError(f"Failed to retrieve object: {object_id}")
+
+        object_handle = object_result["qReturn"]["qHandle"]
+        layout_result = self._send_request("GetLayout", object_handle)
+        layout = layout_result.get("qLayout", layout_result) if layout_result else {}
+        hypercube = layout.get("qHyperCube", {})
+
+        if not hypercube:
+            raise ValueError(f"Object does not expose qHyperCube metadata: {object_id}")
+
+        size = hypercube.get("qSize", {})
+        total_rows = size.get("qcy", 0)
+        total_columns = size.get("qcx", 0)
+
+        data_pages = hypercube.get("qDataPages", [])
+        requested_rows = min(total_rows, max(max_data_rows, 0))
+        if not data_pages and requested_rows and total_columns:
+            data_result = self._send_request(
+                "GetHyperCubeData",
+                object_handle,
+                ["/qHyperCubeDef", [{
+                    "qTop": 0,
+                    "qLeft": 0,
+                    "qWidth": total_columns,
+                    "qHeight": requested_rows,
+                }]],
+            )
+            data_pages = data_result.get("qDataPages", [])
+
+        density_stats = self._compute_data_density(data_pages, total_columns)
+        total_cells = total_rows * total_columns
+
+        return {
+            "object_id": object_id,
+            "object_type": layout.get("qInfo", {}).get("qType", ""),
+            "title": layout.get("title", ""),
+            "subtitle": layout.get("subtitle", ""),
+            "hypercube": {
+                "size": {
+                    "rows": total_rows,
+                    "columns": total_columns,
+                    "cells": total_cells,
+                },
+                "mode": hypercube.get("qMode"),
+                "no_of_left_dimensions": hypercube.get("qNoOfLeftDims", 0),
+                "dimension_count": len(hypercube.get("qDimensionInfo", [])),
+                "measure_count": len(hypercube.get("qMeasureInfo", [])),
+                "dimensions": [
+                    {
+                        "title": item.get("qFallbackTitle", ""),
+                        "cardinal": item.get("qCardinal"),
+                    }
+                    for item in hypercube.get("qDimensionInfo", [])
+                ],
+                "measures": [
+                    {
+                        "title": item.get("qFallbackTitle", ""),
+                        "min": item.get("qMin"),
+                        "max": item.get("qMax"),
+                    }
+                    for item in hypercube.get("qMeasureInfo", [])
+                ],
+            },
+            "statistics": {
+                "total_rows": total_rows,
+                "total_columns": total_columns,
+                "total_cells": total_cells,
+                "sampled": density_stats["sampled_row_count"] < total_rows,
+                **density_stats,
+            },
+        }
+
+    @staticmethod
     def _summarize_measure(measure: dict[str, Any]) -> dict[str, Any]:
         """Trim master measure payload for overview responses."""
         return {

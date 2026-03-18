@@ -1,12 +1,19 @@
-"""Tests for the get_app_details insight tool."""
+"""Tests for the insight tools."""
 
 from unittest.mock import patch
 
 import pytest
 
 from src.qlik_client import QlikClient
-from src.server import handle_get_app_details
-from src.tools import GetAppDetailsArgs, get_app_details
+from src.server import handle_get_app_details, handle_get_field_statistics, handle_get_hypercube_summary
+from src.tools import (
+    GetAppDetailsArgs,
+    GetFieldStatisticsArgs,
+    GetHypercubeSummaryArgs,
+    get_app_details,
+    get_field_statistics,
+    get_hypercube_summary,
+)
 
 
 def test_get_app_details_args_strip_app_id():
@@ -17,6 +24,25 @@ def test_get_app_details_args_strip_app_id():
     assert args.include_master_items is True
     assert args.include_sheet_overview is True
     assert args.resolve_master_items is True
+
+
+def test_get_field_statistics_args_strip_app_id():
+    args = GetFieldStatisticsArgs(app_id="  app-123  ")
+
+    assert args.app_id == "app-123"
+    assert args.show_system is True
+    assert args.show_hidden is True
+    assert args.show_derived_fields is True
+    assert args.show_semantic is True
+    assert args.show_implicit is True
+
+
+def test_get_hypercube_summary_args_strip_ids():
+    args = GetHypercubeSummaryArgs(app_id="  app-123  ", object_id="  obj-1  ")
+
+    assert args.app_id == "app-123"
+    assert args.object_id == "obj-1"
+    assert args.max_data_rows == 1000
 
 
 def test_get_app_metadata_normalizes_repository_payload():
@@ -108,6 +134,118 @@ def test_get_sheet_overviews_compacts_objects():
     assert overview["sheets"][0]["objects"][1]["embedded_object_count"] == 3
 
 
+def test_get_hypercube_summary_helper_compacts_metadata_and_density():
+    client = QlikClient()
+    client.ws = object()
+    client.app_handle = 1
+
+    with patch.object(client, "_send_request", side_effect=[
+        {"qReturn": {"qHandle": 99}},
+        {
+            "qLayout": {
+                "qInfo": {"qType": "table"},
+                "title": "Sales Table",
+                "subtitle": "FY26",
+                "qHyperCube": {
+                    "qSize": {"qcy": 3, "qcx": 2},
+                    "qMode": "S",
+                    "qNoOfLeftDims": 1,
+                    "qDimensionInfo": [{"qFallbackTitle": "Region", "qCardinal": 3}],
+                    "qMeasureInfo": [{"qFallbackTitle": "Sales", "qMin": 10, "qMax": 30}],
+                    "qDataPages": [{
+                        "qMatrix": [
+                            [{"qText": "North"}, {"qText": "10"}],
+                            [{"qText": "South"}, {"qText": ""}],
+                            [{"qText": "West"}, {"qIsNull": True}],
+                        ],
+                    }],
+                },
+            },
+        },
+    ]) as send_request:
+        result = client.get_hypercube_summary("obj-1", max_data_rows=50)
+
+    assert send_request.call_count == 2
+    assert result["object_type"] == "table"
+    assert result["hypercube"]["size"] == {"rows": 3, "columns": 2, "cells": 6}
+    assert result["hypercube"]["dimension_count"] == 1
+    assert result["hypercube"]["measure_count"] == 1
+    assert result["statistics"] == {
+        "total_rows": 3,
+        "total_columns": 2,
+        "total_cells": 6,
+        "sampled": False,
+        "sampled_row_count": 3,
+        "sampled_cell_count": 6,
+        "populated_cells": 4,
+        "empty_cells": 2,
+        "density": 0.6667,
+    }
+
+
+def test_get_field_statistics_helper_compacts_field_payload():
+    client = QlikClient()
+
+    with patch.object(client, "get_fields", return_value={
+        "field_count": 2,
+        "table_count": 3,
+        "tables": ["Calendar", "Customers", "Sales"],
+        "fields": [
+            {
+                "name": "Region",
+                "cardinal": 4,
+                "is_system": False,
+                "is_hidden": False,
+                "source_tables": ["Customers", "Sales"],
+            },
+            {
+                "name": "$Table",
+                "cardinal": 3,
+                "is_system": True,
+                "is_hidden": True,
+                "source_tables": ["Sales"],
+            },
+        ],
+    }) as get_fields:
+        result = client.get_field_statistics(
+            show_system=False,
+            show_hidden=False,
+            show_derived_fields=True,
+            show_semantic=True,
+            show_implicit=False,
+        )
+
+    get_fields.assert_called_once_with(
+        show_system=False,
+        show_hidden=False,
+        show_derived_fields=True,
+        show_semantic=True,
+        show_src_tables=True,
+        show_implicit=False,
+    )
+    assert result == {
+        "field_count": 2,
+        "table_count": 3,
+        "tables": ["Calendar", "Customers", "Sales"],
+        "fields": [
+            {
+                "name": "Region",
+                "cardinal": 4,
+                "table_count": 2,
+                "is_system": False,
+                "is_hidden": False,
+            },
+            {
+                "name": "$Table",
+                "cardinal": 3,
+                "table_count": 1,
+                "is_system": True,
+                "is_hidden": True,
+            },
+        ],
+    }
+
+
 @pytest.mark.asyncio
 async def test_get_app_details_aggregates_repository_and_engine_data():
     with patch("src.tools.QlikClient") as mock_client_cls:
@@ -195,6 +333,97 @@ async def test_get_app_details_respects_section_flags():
 
 
 @pytest.mark.asyncio
+async def test_get_field_statistics_returns_compact_summary():
+    with patch("src.tools.QlikClient") as mock_client_cls:
+        client = mock_client_cls.return_value
+        client.connect.return_value = True
+        client.get_field_statistics.return_value = {
+            "field_count": 2,
+            "table_count": 2,
+            "tables": ["Customers", "Sales"],
+            "fields": [
+                {
+                    "name": "Region",
+                    "cardinal": 4,
+                    "table_count": 2,
+                    "is_system": False,
+                    "is_hidden": False,
+                },
+                {
+                    "name": "$Table",
+                    "cardinal": 2,
+                    "table_count": 1,
+                    "is_system": True,
+                    "is_hidden": True,
+                },
+            ],
+        }
+
+        result = await get_field_statistics(
+            app_id="app-123",
+            show_system=False,
+            show_hidden=False,
+            show_derived_fields=True,
+            show_semantic=True,
+            show_implicit=False,
+        )
+
+    client.get_field_statistics.assert_called_once_with(
+        show_system=False,
+        show_hidden=False,
+        show_derived_fields=True,
+        show_semantic=True,
+        show_implicit=False,
+    )
+    assert result["app_id"] == "app-123"
+    assert result["field_count"] == 2
+    assert result["fields"][0]["table_count"] == 2
+    assert result["options"]["show_implicit"] is False
+    client.disconnect.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_get_hypercube_summary_returns_compact_summary():
+    with patch("src.tools.QlikClient") as mock_client_cls:
+        client = mock_client_cls.return_value
+        client.connect.return_value = True
+        client.get_hypercube_summary.return_value = {
+            "object_id": "obj-1",
+            "object_type": "table",
+            "title": "Sales Table",
+            "hypercube": {
+                "size": {"rows": 20, "columns": 4, "cells": 80},
+                "dimension_count": 2,
+                "measure_count": 2,
+            },
+            "statistics": {
+                "total_rows": 20,
+                "total_columns": 4,
+                "total_cells": 80,
+                "sampled": False,
+                "sampled_row_count": 20,
+                "sampled_cell_count": 80,
+                "populated_cells": 72,
+                "empty_cells": 8,
+                "density": 0.9,
+            },
+        }
+
+        result = await get_hypercube_summary(
+            app_id="app-123",
+            object_id="obj-1",
+            max_data_rows=250,
+        )
+
+    client.get_hypercube_summary.assert_called_once_with(object_id="obj-1", max_data_rows=250)
+    assert result["app_id"] == "app-123"
+    assert result["object_id"] == "obj-1"
+    assert result["statistics"]["density"] == 0.9
+    assert result["options"]["max_data_rows"] == 250
+    client.disconnect.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_handle_get_app_details_calls_tool():
     with patch("src.server.get_app_details") as get_app_details_mock:
         get_app_details_mock.return_value = {"app_id": "app-123", "app_metadata": {"name": "Sales Dashboard"}}
@@ -217,3 +446,59 @@ async def test_handle_get_app_details_calls_tool():
         resolve_master_items=False,
     )
     assert result["app_metadata"]["name"] == "Sales Dashboard"
+
+
+@pytest.mark.asyncio
+async def test_handle_get_field_statistics_calls_tool():
+    with patch("src.server.get_field_statistics") as get_field_statistics_mock:
+        get_field_statistics_mock.return_value = {
+            "app_id": "app-123",
+            "field_count": 2,
+            "fields": [{"name": "Region", "cardinal": 4, "table_count": 1}],
+        }
+
+        result = await handle_get_field_statistics(
+            GetFieldStatisticsArgs(
+                app_id="app-123",
+                show_system=False,
+                show_hidden=False,
+                show_derived_fields=True,
+                show_semantic=True,
+                show_implicit=False,
+            )
+        )
+
+    get_field_statistics_mock.assert_called_once_with(
+        app_id="app-123",
+        show_system=False,
+        show_hidden=False,
+        show_derived_fields=True,
+        show_semantic=True,
+        show_implicit=False,
+    )
+    assert result["field_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_handle_get_hypercube_summary_calls_tool():
+    with patch("src.server.get_hypercube_summary") as get_hypercube_summary_mock:
+        get_hypercube_summary_mock.return_value = {
+            "app_id": "app-123",
+            "object_id": "obj-1",
+            "statistics": {"total_rows": 20, "total_columns": 4, "density": 0.9},
+        }
+
+        result = await handle_get_hypercube_summary(
+            GetHypercubeSummaryArgs(
+                app_id="app-123",
+                object_id="obj-1",
+                max_data_rows=250,
+            )
+        )
+
+    get_hypercube_summary_mock.assert_called_once_with(
+        app_id="app-123",
+        object_id="obj-1",
+        max_data_rows=250,
+    )
+    assert result["statistics"]["density"] == 0.9

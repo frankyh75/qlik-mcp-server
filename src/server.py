@@ -32,6 +32,8 @@ from .tools import (
     GetAppDetailsArgs,
     GetAppDimensionsArgs,
     GetAppFieldsArgs,
+    GetFieldStatisticsArgs,
+    GetHypercubeSummaryArgs,
     GetAppMeasuresArgs,
     GetAppScriptArgs,
     GetAppSheetsArgs,
@@ -55,6 +57,8 @@ from .tools import (
     get_app_details,
     get_app_dimensions,
     get_app_fields,
+    get_field_statistics,
+    get_hypercube_summary,
     get_app_measures,
     get_app_script,
     get_app_sheets,
@@ -266,6 +270,74 @@ async def handle_get_app_details(args: GetAppDetailsArgs) -> dict[str, Any]:
         error_response = {
             "error": f"Unexpected error: {e!s}",
             "app_id": args.app_id,
+        }
+        print(f"❌ Unexpected error in MCP handler: {e}", file=sys.stderr)
+        import traceback
+        print(f"❌ Traceback: {traceback.format_exc()}", file=sys.stderr)
+        return error_response
+
+
+@mcp.tool()
+async def handle_get_field_statistics(args: GetFieldStatisticsArgs) -> dict[str, Any]:
+    """MCP tool handler for retrieving compact field statistics."""
+    print(f"📈 Retrieving field statistics for app: {args.app_id}", file=sys.stderr)
+    print(f"📈 Environment check: QLIK_SERVER_URL={os.getenv('QLIK_SERVER_URL')}", file=sys.stderr)
+
+    try:
+        result = await get_field_statistics(
+            app_id=args.app_id,
+            show_system=args.show_system,
+            show_hidden=args.show_hidden,
+            show_derived_fields=args.show_derived_fields,
+            show_semantic=args.show_semantic,
+            show_implicit=args.show_implicit,
+        )
+
+        if "error" in result:
+            print(f"❌ Error: {result['error']}", file=sys.stderr)
+        else:
+            print(f"✅ Retrieved field statistics for {result['field_count']} fields", file=sys.stderr)
+
+        return result
+
+    except Exception as e:
+        error_response = {
+            "error": f"Unexpected error: {e!s}",
+            "app_id": args.app_id,
+        }
+        print(f"❌ Unexpected error in MCP handler: {e}", file=sys.stderr)
+        import traceback
+        print(f"❌ Traceback: {traceback.format_exc()}", file=sys.stderr)
+        return error_response
+
+
+@mcp.tool()
+async def handle_get_hypercube_summary(args: GetHypercubeSummaryArgs) -> dict[str, Any]:
+    """MCP tool handler for retrieving compact qHyperCube metadata and health statistics."""
+    print(f"📉 Retrieving hypercube summary for object: {args.object_id}", file=sys.stderr)
+    print(f"📉 Environment check: QLIK_SERVER_URL={os.getenv('QLIK_SERVER_URL')}", file=sys.stderr)
+
+    try:
+        result = await get_hypercube_summary(
+            app_id=args.app_id,
+            object_id=args.object_id,
+            max_data_rows=args.max_data_rows,
+        )
+
+        if "error" in result:
+            print(f"❌ Error: {result['error']}", file=sys.stderr)
+        else:
+            rows = result.get("statistics", {}).get("total_rows", 0)
+            cols = result.get("statistics", {}).get("total_columns", 0)
+            print(f"✅ Retrieved hypercube summary with {rows} rows x {cols} columns", file=sys.stderr)
+
+        return result
+
+    except Exception as e:
+        error_response = {
+            "error": f"Unexpected error: {e!s}",
+            "app_id": args.app_id,
+            "object_id": args.object_id,
         }
         print(f"❌ Unexpected error in MCP handler: {e}", file=sys.stderr)
         import traceback
