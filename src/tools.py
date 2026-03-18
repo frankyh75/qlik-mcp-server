@@ -4,7 +4,7 @@ import re
 from datetime import datetime
 from typing import Annotated, Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .qlik_client import QlikClient
 
@@ -229,6 +229,40 @@ class GetAppDimensionsArgs(BaseModel):
     include_info: Annotated[bool, Field(
         default=True,
         description="Include detailed dimension metadata and configuration.",
+    )] = True
+
+    @field_validator("app_id")
+    @classmethod
+    def validate_app_id(cls, v: str) -> str:
+        """Ensure app_id is not empty and properly formatted."""
+        if not v.strip():
+            raise ValueError("app_id cannot be empty or whitespace")
+        return v.strip()
+
+
+class GetAppDetailsArgs(BaseModel):
+    """Retrieve a compact application overview using Repository and Engine APIs."""
+
+    app_id: Annotated[str, Field(
+        description="Qlik Sense application ID (GUID format or app name)",
+        min_length=1,
+        max_length=255,
+    )]
+    include_fields: Annotated[bool, Field(
+        default=True,
+        description="Include compact field and table metadata from the app data model.",
+    )] = True
+    include_master_items: Annotated[bool, Field(
+        default=True,
+        description="Include master measures and dimensions in the app overview.",
+    )] = True
+    include_sheet_overview: Annotated[bool, Field(
+        default=True,
+        description="Include sheets and compact object summaries for each sheet.",
+    )] = True
+    resolve_master_items: Annotated[bool, Field(
+        default=True,
+        description="Resolve master item references when analyzing sheet objects.",
     )] = True
 
     @field_validator("app_id")
@@ -815,6 +849,97 @@ async def get_app_dimensions(
         client.disconnect()
 
 
+async def get_app_details(
+    app_id: str,
+    include_fields: bool = True,
+    include_master_items: bool = True,
+    include_sheet_overview: bool = True,
+    resolve_master_items: bool = True,
+) -> dict[str, Any]:
+    """Retrieve a compact application overview using Repository and Engine APIs."""
+    client = QlikClient()
+
+    try:
+        app_metadata = client.get_app_metadata(app_id)
+
+        if not client.connect(app_id):
+            return {
+                "error": "Failed to connect to Qlik Engine",
+                "app_id": app_id,
+                "app_metadata": app_metadata,
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+
+        response: dict[str, Any] = {
+            "app_id": app_id,
+            "app_metadata": app_metadata,
+            "retrieved_at": datetime.utcnow().isoformat(),
+            "options": {
+                "include_fields": include_fields,
+                "include_master_items": include_master_items,
+                "include_sheet_overview": include_sheet_overview,
+                "resolve_master_items": resolve_master_items,
+            },
+        }
+
+        if include_fields:
+            fields_result = client.get_fields(
+                show_system=True,
+                show_hidden=True,
+                show_derived_fields=True,
+                show_semantic=True,
+                show_src_tables=True,
+                show_implicit=True,
+            )
+            response["data_model"] = {
+                "field_count": fields_result.get("field_count", 0),
+                "table_count": fields_result.get("table_count", 0),
+                "tables": fields_result.get("tables", []),
+                "fields": [
+                    client._summarize_field(field)
+                    for field in fields_result.get("fields", [])
+                ],
+            }
+
+        if include_master_items:
+            measures_result = client.get_measures(include_expression=True, include_tags=True)
+            dimensions_result = client.get_dimensions(
+                include_title=True,
+                include_tags=True,
+                include_grouping=True,
+                include_info=True,
+            )
+            response["master_items"] = {
+                "measure_count": measures_result.get("count", 0),
+                "dimension_count": dimensions_result.get("dimension_count", 0),
+                "measures": [
+                    client._summarize_measure(measure)
+                    for measure in measures_result.get("measures", [])
+                ],
+                "dimensions": [
+                    client._summarize_dimension(dimension)
+                    for dimension in dimensions_result.get("dimensions", [])
+                ],
+            }
+
+        if include_sheet_overview:
+            response["sheets"] = client.get_sheet_overviews(
+                resolve_master_items=resolve_master_items,
+            )
+
+        return response
+
+    except Exception as e:
+        return {
+            "error": str(e),
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    finally:
+        client.disconnect()
+
+
 def parse_script_sections(script: str) -> list[ScriptSection]:
     """Parse script into sections/tabs based on ///$tab markers"""
     sections = []
@@ -1384,6 +1509,216 @@ class CreateObjectArgs(BaseModel):
         return v.strip()
 
 
+class PlotDimension(BaseModel):
+    """Structured dimension definition for rich visualization builders."""
+
+    field: Annotated[str | None, Field(
+        default=None,
+        description="Field name used by the dimension",
+    )] = None
+    library_id: Annotated[str | None, Field(
+        default=None,
+        description="Optional master dimension ID to reuse",
+    )] = None
+    label: Annotated[str | None, Field(
+        default=None,
+        description="Optional display label override",
+    )] = None
+    sort_by_ascii: Annotated[int | None, Field(
+        default=None,
+        description="Optional Qlik qSortByAscii value, typically 1 or -1",
+    )] = None
+
+    @field_validator("field", "library_id", "label")
+    @classmethod
+    def _strip_optional_strings(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        value = v.strip()
+        return value or None
+
+    @model_validator(mode="after")
+    def _validate_presence(self) -> "PlotDimension":
+        if not self.field and not self.library_id:
+            raise ValueError("Dimension requires either field or library_id")
+        return self
+
+
+class PlotMeasure(BaseModel):
+    """Structured measure definition for rich visualization builders."""
+
+    expression: Annotated[str | None, Field(
+        default=None,
+        description="Measure expression such as Sum(Sales)",
+    )] = None
+    library_id: Annotated[str | None, Field(
+        default=None,
+        description="Optional master measure ID to reuse",
+    )] = None
+    label: Annotated[str | None, Field(
+        default=None,
+        description="Optional display label override",
+    )] = None
+    number_format: Annotated[str | None, Field(
+        default=None,
+        description="Optional number format pattern for the measure",
+    )] = None
+
+    @field_validator("expression", "library_id", "label", "number_format")
+    @classmethod
+    def _strip_optional_strings(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        value = v.strip()
+        return value or None
+
+    @model_validator(mode="after")
+    def _validate_presence(self) -> "PlotMeasure":
+        if not self.expression and not self.library_id:
+            raise ValueError("Measure requires either expression or library_id")
+        return self
+
+
+def _serialize_visualization_dimensions(
+    dimensions: list[PlotDimension] | None,
+) -> list[dict[str, Any]]:
+    """Convert FastMCP dimension args into Qlik client payload dictionaries."""
+    return [dimension.model_dump(exclude_none=True) for dimension in (dimensions or [])]
+
+
+def _serialize_visualization_measures(
+    measures: list[PlotMeasure] | None,
+) -> list[dict[str, Any]]:
+    """Convert FastMCP measure args into Qlik client payload dictionaries."""
+    return [measure.model_dump(exclude_none=True) for measure in (measures or [])]
+
+
+# Backward-compatible aliases for older test/code references.
+VisualizationDimensionDef = PlotDimension
+VisualizationMeasureDef = PlotMeasure
+
+
+class CreateBarChartArgs(BaseModel):
+    """Create a bar chart visualization with structured hypercube inputs."""
+
+    app_id: Annotated[str, Field(description="Qlik Sense application ID", min_length=1, max_length=255)]
+    title: Annotated[str, Field(description="Bar chart title", min_length=1, max_length=255)]
+    dimensions: Annotated[list[PlotDimension], Field(
+        description="One or more dimensions for the chart",
+        min_length=1,
+    )]
+    measures: Annotated[list[PlotMeasure], Field(
+        description="One or more measures for the chart",
+        min_length=1,
+    )]
+    orientation: Annotated[str, Field(
+        default="vertical",
+        description="Bar orientation: vertical or horizontal",
+        pattern="^(vertical|horizontal)$",
+    )] = "vertical"
+    stacked: Annotated[bool, Field(
+        default=False,
+        description="Stack series instead of grouping them",
+    )] = False
+    show_legend: Annotated[bool, Field(
+        default=True,
+        description="Show chart legend",
+    )] = True
+
+    @field_validator("app_id", "title")
+    @classmethod
+    def _validate_non_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Field cannot be empty")
+        return v.strip()
+
+
+class CreateLineChartArgs(BaseModel):
+    """Create a line chart visualization with structured hypercube inputs."""
+
+    app_id: Annotated[str, Field(description="Qlik Sense application ID", min_length=1, max_length=255)]
+    title: Annotated[str, Field(description="Line chart title", min_length=1, max_length=255)]
+    dimensions: Annotated[list[PlotDimension], Field(
+        description="One or more dimensions for the chart",
+        min_length=1,
+    )]
+    measures: Annotated[list[PlotMeasure], Field(
+        description="One or more measures for the chart",
+        min_length=1,
+    )]
+    show_markers: Annotated[bool, Field(
+        default=True,
+        description="Show data point markers on each line",
+    )] = True
+
+    @field_validator("app_id", "title")
+    @classmethod
+    def _validate_non_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Field cannot be empty")
+        return v.strip()
+
+
+class CreateKpiArgs(BaseModel):
+    """Create a KPI visualization with a single measure."""
+
+    app_id: Annotated[str, Field(description="Qlik Sense application ID", min_length=1, max_length=255)]
+    title: Annotated[str, Field(description="KPI title", min_length=1, max_length=255)]
+    dimensions: Annotated[list[PlotDimension], Field(
+        default_factory=list,
+        description="Optional dimensions. Usually empty for a KPI.",
+    )]
+    measures: Annotated[list[PlotMeasure], Field(
+        description="Exactly one measure driving the KPI",
+        min_length=1,
+        max_length=1,
+    )]
+    subtitle: Annotated[str, Field(
+        default="",
+        description="Optional KPI subtitle",
+    )] = ""
+
+    @field_validator("app_id", "title")
+    @classmethod
+    def _validate_non_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Field cannot be empty")
+        return v.strip()
+
+    @field_validator("subtitle")
+    @classmethod
+    def _strip_subtitle(cls, v: str) -> str:
+        return v.strip()
+
+
+class CreateTableArgs(BaseModel):
+    """Create a table visualization with structured hypercube inputs."""
+
+    app_id: Annotated[str, Field(description="Qlik Sense application ID", min_length=1, max_length=255)]
+    title: Annotated[str, Field(description="Table title", min_length=1, max_length=255)]
+    dimensions: Annotated[list[PlotDimension], Field(
+        default_factory=list,
+        description="Optional dimensions shown as table columns",
+    )]
+    measures: Annotated[list[PlotMeasure], Field(
+        default_factory=list,
+        description="Optional measures shown as table columns",
+    )]
+
+    @field_validator("app_id", "title")
+    @classmethod
+    def _validate_non_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Field cannot be empty")
+        return v.strip()
+
+    @model_validator(mode="after")
+    def _validate_content(self) -> "CreateTableArgs":
+        if not self.dimensions and not self.measures:
+            raise ValueError("Table requires at least one dimension or measure")
+        return self
+
+
 
 class UpdateMeasureArgs(BaseModel):
     """Update an existing master measure in a Qlik Sense application."""
@@ -1918,6 +2253,172 @@ async def create_object(
             object_type=object_type,
             title=title,
             properties=properties,
+        )
+
+        return {
+            **result,
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    except Exception as e:
+        return {
+            "error": str(e),
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    finally:
+        client.disconnect()
+
+
+async def create_bar_chart(
+    app_id: str,
+    title: str,
+    dimensions: list[PlotDimension],
+    measures: list[PlotMeasure],
+    orientation: str = "vertical",
+    stacked: bool = False,
+    show_legend: bool = True,
+) -> dict[str, Any]:
+    """Create a bar chart visualization in a Qlik Sense application."""
+    client = QlikClient()
+
+    try:
+        if not client.connect(app_id):
+            return {"error": f"Failed to connect to app: {app_id}"}
+
+        result = client.create_object(
+            object_type="barchart",
+            title=title,
+            properties=QlikClient.build_bar_chart_properties(
+                dimensions=_serialize_visualization_dimensions(dimensions),
+                measures=_serialize_visualization_measures(measures),
+                orientation=orientation,
+                stacked=stacked,
+                show_legend=show_legend,
+            ),
+        )
+
+        return {
+            **result,
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    except Exception as e:
+        return {
+            "error": str(e),
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    finally:
+        client.disconnect()
+
+
+async def create_line_chart(
+    app_id: str,
+    title: str,
+    dimensions: list[PlotDimension],
+    measures: list[PlotMeasure],
+    show_markers: bool = True,
+) -> dict[str, Any]:
+    """Create a line chart visualization in a Qlik Sense application."""
+    client = QlikClient()
+
+    try:
+        if not client.connect(app_id):
+            return {"error": f"Failed to connect to app: {app_id}"}
+
+        result = client.create_object(
+            object_type="linechart",
+            title=title,
+            properties=QlikClient.build_line_chart_properties(
+                dimensions=_serialize_visualization_dimensions(dimensions),
+                measures=_serialize_visualization_measures(measures),
+                show_markers=show_markers,
+            ),
+        )
+
+        return {
+            **result,
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    except Exception as e:
+        return {
+            "error": str(e),
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    finally:
+        client.disconnect()
+
+
+async def create_kpi(
+    app_id: str,
+    title: str,
+    dimensions: list[PlotDimension] | None = None,
+    measures: list[PlotMeasure] | None = None,
+    subtitle: str = "",
+) -> dict[str, Any]:
+    """Create a KPI visualization in a Qlik Sense application."""
+    client = QlikClient()
+
+    try:
+        if not client.connect(app_id):
+            return {"error": f"Failed to connect to app: {app_id}"}
+
+        result = client.create_object(
+            object_type="kpi",
+            title=title,
+            properties=QlikClient.build_kpi_properties(
+                dimensions=_serialize_visualization_dimensions(dimensions),
+                measures=_serialize_visualization_measures(measures),
+                subtitle=subtitle,
+            ),
+        )
+
+        return {
+            **result,
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    except Exception as e:
+        return {
+            "error": str(e),
+            "app_id": app_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    finally:
+        client.disconnect()
+
+
+async def create_table(
+    app_id: str,
+    title: str,
+    dimensions: list[PlotDimension] | None = None,
+    measures: list[PlotMeasure] | None = None,
+) -> dict[str, Any]:
+    """Create a table visualization in a Qlik Sense application."""
+    client = QlikClient()
+
+    try:
+        if not client.connect(app_id):
+            return {"error": f"Failed to connect to app: {app_id}"}
+
+        result = client.create_object(
+            object_type="table",
+            title=title,
+            properties=QlikClient.build_table_properties(
+                dimensions=_serialize_visualization_dimensions(dimensions),
+                measures=_serialize_visualization_measures(measures),
+            ),
         )
 
         return {

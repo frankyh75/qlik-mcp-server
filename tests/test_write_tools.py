@@ -2,14 +2,31 @@
 
 import pytest
 from unittest.mock import MagicMock, patch
+from src.qlik_client import QlikClient
+from src.server import (
+    handle_create_bar_chart,
+    handle_create_kpi,
+    handle_create_line_chart,
+    handle_create_table,
+)
 from src.tools import (
+    CreateBarChartArgs,
+    CreateKpiArgs,
+    CreateLineChartArgs,
     CreateMeasureArgs,
     CreateVariableArgs,
     CreateDimensionArgs,
     CreateSheetArgs,
+    CreateTableArgs,
     CreateObjectArgs,
     GetSheetLayoutArgs,
     RepositionSheetObjectArgs,
+    PlotDimension,
+    PlotMeasure,
+    create_bar_chart,
+    create_kpi,
+    create_line_chart,
+    create_table,
     get_sheet_layout,
     reposition_sheet_object,
 )
@@ -169,6 +186,65 @@ class TestCreateObjectArgs:
         assert args.properties is None
 
 
+class TestVisualizationDefinitionArgs:
+    """Tests for structured dimension and measure definitions."""
+
+    def test_dimension_allows_field(self):
+        dimension = PlotDimension(field="Region", label="Region")
+        assert dimension.field == "Region"
+
+    def test_dimension_requires_field_or_library_id(self):
+        with pytest.raises(ValueError):
+            PlotDimension()
+
+    def test_measure_allows_expression(self):
+        measure = PlotMeasure(expression="Sum(Sales)", label="Sales")
+        assert measure.expression == "Sum(Sales)"
+
+    def test_measure_requires_expression_or_library_id(self):
+        with pytest.raises(ValueError):
+            PlotMeasure()
+
+
+class TestVisualizationBuilderArgs:
+    """Tests for dedicated visualization builder argument models."""
+
+    def test_create_bar_chart_args_valid(self):
+        args = CreateBarChartArgs(
+            app_id="test-app-id",
+            title="Sales by Region",
+            dimensions=[PlotDimension(field="Region")],
+            measures=[PlotMeasure(expression="Sum(Sales)")],
+            orientation="horizontal",
+            stacked=True,
+        )
+        assert args.orientation == "horizontal"
+        assert args.stacked is True
+
+    def test_create_line_chart_args_valid(self):
+        args = CreateLineChartArgs(
+            app_id="test-app-id",
+            title="Sales Trend",
+            dimensions=[PlotDimension(field="OrderDate")],
+            measures=[PlotMeasure(expression="Sum(Sales)")],
+            show_markers=False,
+        )
+        assert args.show_markers is False
+
+    def test_create_kpi_args_valid(self):
+        args = CreateKpiArgs(
+            app_id="test-app-id",
+            title="Total Sales",
+            measures=[PlotMeasure(expression="Sum(Sales)")],
+            subtitle="Current period",
+        )
+        assert args.subtitle == "Current period"
+
+    def test_create_table_requires_content(self):
+        with pytest.raises(ValueError):
+            CreateTableArgs(app_id="test-app-id", title="Empty Table")
+
+
 class TestGetSheetLayoutArgs:
     """Tests for GetSheetLayoutArgs validation"""
 
@@ -294,6 +370,293 @@ async def test_reposition_sheet_object_calls_client():
         assert result["col"] == 4
         assert result["row"] == 1
         assert "timestamp" in result
+
+
+@pytest.mark.asyncio
+async def test_create_bar_chart_calls_client():
+    """Bar chart wrapper should build the expected hypercube and call create_object."""
+    with patch("src.tools.QlikClient") as mock_client_cls:
+        mock_client = MagicMock()
+        mock_client.connect.return_value = True
+        mock_client.create_object.return_value = {
+            "success": True,
+            "object_id": "chart-123",
+            "object_type": "barchart",
+            "title": "Sales by Region",
+        }
+        mock_client_cls.return_value = mock_client
+        mock_client_cls.build_bar_chart_properties.side_effect = QlikClient.build_bar_chart_properties
+
+        result = await create_bar_chart(
+            app_id="app-123",
+            title="Sales by Region",
+            dimensions=[PlotDimension(field="Region", label="Region")],
+            measures=[PlotMeasure(expression="Sum(Sales)", label="Sales")],
+            orientation="horizontal",
+            stacked=True,
+            show_legend=False,
+        )
+
+        mock_client.create_object.assert_called_once_with(
+            object_type="barchart",
+            title="Sales by Region",
+            properties={
+                "qHyperCubeDef": {
+                    "qDimensions": [{
+                        "qLabel": "Region",
+                        "qNullSuppression": False,
+                        "qDef": {"qFieldDefs": ["Region"], "qFieldLabels": ["Region"]},
+                    }],
+                    "qMeasures": [{"qLabel": "Sales", "qDef": "Sum(Sales)"}],
+                    "qInitialDataFetch": [{"qTop": 0, "qLeft": 0, "qHeight": 100, "qWidth": 2}],
+                    "qSuppressZero": False,
+                    "qSuppressMissing": False,
+                    "qInterColumnSortOrder": [0, 1],
+                },
+                "orientation": "horizontal",
+                "barGrouping": "stacked",
+                "legend": {"show": False},
+            },
+        )
+        assert result["success"] is True
+        assert result["app_id"] == "app-123"
+
+
+@pytest.mark.asyncio
+async def test_create_line_chart_calls_client():
+    with patch("src.tools.QlikClient") as mock_client_cls:
+        mock_client = MagicMock()
+        mock_client.connect.return_value = True
+        mock_client.create_object.return_value = {
+            "success": True,
+            "object_id": "line-123",
+            "object_type": "linechart",
+            "title": "Sales Trend",
+        }
+        mock_client_cls.return_value = mock_client
+        mock_client_cls.build_line_chart_properties.side_effect = QlikClient.build_line_chart_properties
+
+        result = await create_line_chart(
+            app_id="app-123",
+            title="Sales Trend",
+            dimensions=[PlotDimension(field="OrderDate")],
+            measures=[PlotMeasure(expression="Sum(Sales)")],
+            show_markers=False,
+        )
+
+        mock_client.create_object.assert_called_once_with(
+            object_type="linechart",
+            title="Sales Trend",
+            properties={
+                "qHyperCubeDef": {
+                    "qDimensions": [{
+                        "qLabel": "OrderDate",
+                        "qNullSuppression": False,
+                        "qDef": {"qFieldDefs": ["OrderDate"], "qFieldLabels": ["OrderDate"]},
+                    }],
+                    "qMeasures": [{"qLabel": "Sum(Sales)", "qDef": "Sum(Sales)"}],
+                    "qInitialDataFetch": [{"qTop": 0, "qLeft": 0, "qHeight": 100, "qWidth": 2}],
+                    "qSuppressZero": False,
+                    "qSuppressMissing": False,
+                    "qInterColumnSortOrder": [0, 1],
+                },
+                "dataPoint": {"show": False},
+                "legend": {"show": True},
+            },
+        )
+        assert result["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_create_kpi_calls_client():
+    with patch("src.tools.QlikClient") as mock_client_cls:
+        mock_client = MagicMock()
+        mock_client.connect.return_value = True
+        mock_client.create_object.return_value = {
+            "success": True,
+            "object_id": "kpi-123",
+            "object_type": "kpi",
+            "title": "Total Sales",
+        }
+        mock_client_cls.return_value = mock_client
+        mock_client_cls.build_kpi_properties.side_effect = QlikClient.build_kpi_properties
+
+        result = await create_kpi(
+            app_id="app-123",
+            title="Total Sales",
+            measures=[PlotMeasure(expression="Sum(Sales)", label="Sales")],
+            subtitle="Current period",
+        )
+
+        mock_client.create_object.assert_called_once_with(
+            object_type="kpi",
+            title="Total Sales",
+            properties={
+                "qHyperCubeDef": {
+                    "qDimensions": [],
+                    "qMeasures": [{"qLabel": "Sales", "qDef": "Sum(Sales)"}],
+                    "qInitialDataFetch": [{"qTop": 0, "qLeft": 0, "qHeight": 1, "qWidth": 1}],
+                    "qSuppressZero": False,
+                    "qSuppressMissing": False,
+                    "qInterColumnSortOrder": [0],
+                },
+                "subtitle": "Current period",
+            },
+        )
+        assert result["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_create_table_calls_client():
+    with patch("src.tools.QlikClient") as mock_client_cls:
+        mock_client = MagicMock()
+        mock_client.connect.return_value = True
+        mock_client.create_object.return_value = {
+            "success": True,
+            "object_id": "table-123",
+            "object_type": "table",
+            "title": "Sales Table",
+        }
+        mock_client_cls.return_value = mock_client
+        mock_client_cls.build_table_properties.side_effect = QlikClient.build_table_properties
+
+        result = await create_table(
+            app_id="app-123",
+            title="Sales Table",
+            dimensions=[PlotDimension(field="Region")],
+            measures=[PlotMeasure(expression="Sum(Sales)")],
+        )
+
+        mock_client.create_object.assert_called_once_with(
+            object_type="table",
+            title="Sales Table",
+            properties={
+                "qHyperCubeDef": {
+                    "qDimensions": [{
+                        "qLabel": "Region",
+                        "qNullSuppression": False,
+                        "qDef": {"qFieldDefs": ["Region"], "qFieldLabels": ["Region"]},
+                    }],
+                    "qMeasures": [{"qLabel": "Sum(Sales)", "qDef": "Sum(Sales)"}],
+                    "qInitialDataFetch": [{"qTop": 0, "qLeft": 0, "qHeight": 100, "qWidth": 2}],
+                    "qSuppressZero": False,
+                    "qSuppressMissing": False,
+                    "qInterColumnSortOrder": [0, 1],
+                },
+            },
+        )
+        assert result["success"] is True
+
+
+def test_build_hypercube_def_structures_payload():
+    """Client helper should create consistent qHyperCubeDef payloads."""
+    hypercube = QlikClient.build_hypercube_def(
+        dimensions=[{"field": "Region", "label": "Region"}],
+        measures=[{"expression": "Sum(Sales)", "label": "Sales", "number_format": "#,##0"}],
+        initial_rows=50,
+    )
+
+    assert hypercube["qInterColumnSortOrder"] == [0, 1]
+    assert hypercube["qInitialDataFetch"][0]["qHeight"] == 50
+    assert hypercube["qDimensions"][0]["qDef"]["qFieldDefs"] == ["Region"]
+    assert hypercube["qMeasures"][0]["qDef"] == "Sum(Sales)"
+    assert hypercube["qMeasures"][0]["qNumFormat"]["qFmt"] == "#,##0"
+
+
+def test_create_visualization_sends_structured_hypercube():
+    """Typed client helper should feed create_object with the expected payload."""
+    client = QlikClient()
+    client.app_handle = 99
+
+    with patch.object(client, "_send_request", return_value={"qReturn": {"qGenericId": "viz-123"}}) as send_request:
+        result = client.create_bar_chart(
+            title="Sales by Region",
+            dimensions=[{"field": "Region"}],
+            measures=[{"expression": "Sum(Sales)"}],
+            orientation="horizontal",
+            stacked=True,
+            show_legend=False,
+        )
+
+    send_request.assert_called_once()
+    payload = send_request.call_args.args[2]["qProp"]
+    assert payload["qInfo"]["qType"] == "barchart"
+    assert payload["qHyperCubeDef"]["qDimensions"][0]["qDef"]["qFieldDefs"] == ["Region"]
+    assert payload["qHyperCubeDef"]["qMeasures"][0]["qDef"] == "Sum(Sales)"
+    assert payload["orientation"] == "horizontal"
+    assert payload["barGrouping"] == "stacked"
+    assert payload["legend"] == {"show": False}
+    assert result["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_handle_create_bar_chart_calls_tool():
+    with patch("src.server.create_bar_chart") as create_bar_chart_mock:
+        create_bar_chart_mock.return_value = {"success": True, "object_id": "chart-123"}
+
+        result = await handle_create_bar_chart(
+            CreateBarChartArgs(
+                app_id="app-123",
+                title="Sales by Region",
+                dimensions=[PlotDimension(field="Region")],
+                measures=[PlotMeasure(expression="Sum(Sales)")],
+            )
+        )
+
+        create_bar_chart_mock.assert_called_once()
+        assert result["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_handle_create_line_chart_calls_tool():
+    with patch("src.server.create_line_chart") as create_line_chart_mock:
+        create_line_chart_mock.return_value = {"success": True, "object_id": "line-123"}
+
+        result = await handle_create_line_chart(
+            CreateLineChartArgs(
+                app_id="app-123",
+                title="Sales Trend",
+                dimensions=[PlotDimension(field="OrderDate")],
+                measures=[PlotMeasure(expression="Sum(Sales)")],
+            )
+        )
+
+        create_line_chart_mock.assert_called_once()
+        assert result["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_handle_create_kpi_calls_tool():
+    with patch("src.server.create_kpi") as create_kpi_mock:
+        create_kpi_mock.return_value = {"success": True, "object_id": "kpi-123"}
+
+        result = await handle_create_kpi(
+            CreateKpiArgs(
+                app_id="app-123",
+                title="Total Sales",
+                measures=[PlotMeasure(expression="Sum(Sales)")],
+            )
+        )
+
+        create_kpi_mock.assert_called_once()
+        assert result["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_handle_create_table_calls_tool():
+    with patch("src.server.create_table") as create_table_mock:
+        create_table_mock.return_value = {"success": True, "object_id": "table-123"}
+
+        result = await handle_create_table(
+            CreateTableArgs(
+                app_id="app-123",
+                title="Sales Table",
+                dimensions=[PlotDimension(field="Region")],
+            )
+        )
+
+        create_table_mock.assert_called_once()
+        assert result["success"] is True
 
 
 class TestCreateMeasureIntegration:

@@ -12,10 +12,14 @@ from fastmcp import FastMCP
 
 # Import tools and argument models
 from .tools import (
+    CreateBarChartArgs,
     CreateDimensionArgs,
+    CreateKpiArgs,
+    CreateLineChartArgs,
     CreateMeasureArgs,
     CreateObjectArgs,
     CreateSheetArgs,
+    CreateTableArgs,
     CreateVariableArgs,
     UpdateMeasureArgs,
     DeleteMeasureArgs,
@@ -25,6 +29,7 @@ from .tools import (
     DeleteDimensionArgs,
     AddObjectToSheetArgs,
     GetAppDataSourcesArgs,
+    GetAppDetailsArgs,
     GetAppDimensionsArgs,
     GetAppFieldsArgs,
     GetAppMeasuresArgs,
@@ -38,11 +43,16 @@ from .tools import (
     SaveAppArgs,
     SetScriptArgs,
     create_dimension,
+    create_bar_chart,
+    create_kpi,
+    create_line_chart,
     create_measure,
     create_object,
     create_sheet,
+    create_table,
     create_variable,
     get_app_data_sources,
+    get_app_details,
     get_app_dimensions,
     get_app_fields,
     get_app_measures,
@@ -215,6 +225,40 @@ async def handle_get_app_fields(args: GetAppFieldsArgs) -> dict[str, Any]:
             print(f"❌ Error: {result['error']}", file=sys.stderr)
         else:
             print(f"✅ Retrieved {result['field_count']} fields from {result['table_count']} tables", file=sys.stderr)
+
+        return result
+
+    except Exception as e:
+        error_response = {
+            "error": f"Unexpected error: {e!s}",
+            "app_id": args.app_id,
+        }
+        print(f"❌ Unexpected error in MCP handler: {e}", file=sys.stderr)
+        import traceback
+        print(f"❌ Traceback: {traceback.format_exc()}", file=sys.stderr)
+        return error_response
+
+
+@mcp.tool()
+async def handle_get_app_details(args: GetAppDetailsArgs) -> dict[str, Any]:
+    """MCP tool handler for retrieving a compact app overview."""
+    print(f"🔎 Retrieving app details for app: {args.app_id}", file=sys.stderr)
+    print(f"🔎 Environment check: QLIK_SERVER_URL={os.getenv('QLIK_SERVER_URL')}", file=sys.stderr)
+
+    try:
+        result = await get_app_details(
+            app_id=args.app_id,
+            include_fields=args.include_fields,
+            include_master_items=args.include_master_items,
+            include_sheet_overview=args.include_sheet_overview,
+            resolve_master_items=args.resolve_master_items,
+        )
+
+        if "error" in result:
+            print(f"❌ Error: {result['error']}", file=sys.stderr)
+        else:
+            sheet_count = result.get("sheets", {}).get("sheet_count", 0)
+            print(f"✅ Retrieved app overview with {sheet_count} sheets", file=sys.stderr)
 
         return result
 
@@ -598,6 +642,127 @@ async def handle_create_object(args: CreateObjectArgs) -> dict[str, Any]:
             print(f"❌ Error: {result['error']}", file=sys.stderr)
         else:
             print("✅ Object created successfully", file=sys.stderr)
+
+        return result
+
+    except Exception as e:
+        error_response = {
+            "error": f"Unexpected error: {e!s}",
+            "app_id": args.app_id,
+        }
+        print(f"❌ Unexpected error: {e}", file=sys.stderr)
+        return error_response
+
+
+@mcp.tool()
+async def handle_create_bar_chart(args: CreateBarChartArgs) -> dict[str, Any]:
+    """Create a bar chart visualization in a Qlik Sense application."""
+    print(f"➕ Creating bar chart '{args.title}' in app: {args.app_id}", file=sys.stderr)
+
+    try:
+        result = await create_bar_chart(
+            app_id=args.app_id,
+            title=args.title,
+            dimensions=args.dimensions,
+            measures=args.measures,
+            orientation=args.orientation,
+            stacked=args.stacked,
+            show_legend=args.show_legend,
+        )
+
+        if "error" in result:
+            print(f"❌ Error: {result['error']}", file=sys.stderr)
+        else:
+            print("✅ Bar chart created successfully", file=sys.stderr)
+
+        return result
+
+    except Exception as e:
+        error_response = {
+            "error": f"Unexpected error: {e!s}",
+            "app_id": args.app_id,
+        }
+        print(f"❌ Unexpected error: {e}", file=sys.stderr)
+        return error_response
+
+
+@mcp.tool()
+async def handle_create_line_chart(args: CreateLineChartArgs) -> dict[str, Any]:
+    """Create a line chart visualization in a Qlik Sense application."""
+    print(f"➕ Creating line chart '{args.title}' in app: {args.app_id}", file=sys.stderr)
+
+    try:
+        result = await create_line_chart(
+            app_id=args.app_id,
+            title=args.title,
+            dimensions=args.dimensions,
+            measures=args.measures,
+            show_markers=args.show_markers,
+        )
+
+        if "error" in result:
+            print(f"❌ Error: {result['error']}", file=sys.stderr)
+        else:
+            print("✅ Line chart created successfully", file=sys.stderr)
+
+        return result
+
+    except Exception as e:
+        error_response = {
+            "error": f"Unexpected error: {e!s}",
+            "app_id": args.app_id,
+        }
+        print(f"❌ Unexpected error: {e}", file=sys.stderr)
+        return error_response
+
+
+@mcp.tool()
+async def handle_create_kpi(args: CreateKpiArgs) -> dict[str, Any]:
+    """Create a KPI visualization in a Qlik Sense application."""
+    print(f"➕ Creating KPI '{args.title}' in app: {args.app_id}", file=sys.stderr)
+
+    try:
+        result = await create_kpi(
+            app_id=args.app_id,
+            title=args.title,
+            dimensions=args.dimensions,
+            measures=args.measures,
+            subtitle=args.subtitle,
+        )
+
+        if "error" in result:
+            print(f"❌ Error: {result['error']}", file=sys.stderr)
+        else:
+            print("✅ KPI created successfully", file=sys.stderr)
+
+        return result
+
+    except Exception as e:
+        error_response = {
+            "error": f"Unexpected error: {e!s}",
+            "app_id": args.app_id,
+        }
+        print(f"❌ Unexpected error: {e}", file=sys.stderr)
+        return error_response
+
+
+@mcp.tool()
+async def handle_create_table(args: CreateTableArgs) -> dict[str, Any]:
+    """Create a table visualization in a Qlik Sense application."""
+    print(f"➕ Creating table '{args.title}' in app: {args.app_id}", file=sys.stderr)
+
+    try:
+        result = await create_table(
+            app_id=args.app_id,
+            title=args.title,
+            dimensions=args.dimensions,
+            measures=args.measures,
+        )
+
+        if "error" in result:
+            print(f"❌ Error: {result['error']}", file=sys.stderr)
+        else:
+            print("✅ Table created successfully", file=sys.stderr)
 
         return result
 

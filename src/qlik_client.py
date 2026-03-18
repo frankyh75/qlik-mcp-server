@@ -4,6 +4,8 @@ import json
 import os
 import ssl
 from typing import Any
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 import websocket
 from dotenv import load_dotenv
@@ -19,6 +21,7 @@ class QlikClient:
         """Initialize client with configuration from environment"""
         self.server_url = os.getenv("QLIK_SERVER_URL")
         self.server_port = os.getenv("QLIK_SERVER_PORT", "4747")
+        self.repository_port = os.getenv("QLIK_REPOSITORY_PORT", "4242")
         self.user_directory = os.getenv("QLIK_USER_DIRECTORY", "INTERNAL")
         self.user_id = os.getenv("QLIK_USER_ID", "sa_engine")
 
@@ -35,6 +38,182 @@ class QlikClient:
         self.ws: websocket.WebSocket | None = None
         self.request_id = 0
         self.app_handle: int | None = None
+
+    def _normalize_server_host(self) -> str:
+        """Return the Qlik host without protocol or trailing slashes."""
+        host = (self.server_url or "").strip()
+        if host.startswith("https://"):
+            host = host[len("https://"):]
+        elif host.startswith("http://"):
+            host = host[len("http://"):]
+        return host.rstrip("/")
+
+    def _get_auth_headers(self) -> dict[str, str]:
+        """Build the common Qlik user header for Engine and Repository requests."""
+        return {
+            "X-Qlik-User": f"UserDirectory={self.user_directory}; UserId={self.user_id}",
+        }
+
+    def _build_ssl_context(self) -> ssl.SSLContext:
+        """Build a certificate-authenticated SSL context."""
+        context = ssl.create_default_context(cafile=self.cert_root)
+        context.check_hostname = False
+        context.load_cert_chain(certfile=self.cert_client, keyfile=self.cert_key)
+        return context
+
+    def _repository_get_json(
+        self,
+        path: str,
+        query: dict[str, Any] | None = None,
+    ) -> Any:
+        """Execute a Repository API GET request and decode the JSON response."""
+        host = self._normalize_server_host()
+        if not host:
+            raise ValueError("QLIK_SERVER_URL is not configured")
+
+        query_string = f"?{urlencode(query)}" if query else ""
+        url = f"https://{host}:{self.repository_port}{path}{query_string}"
+        request = Request(url, headers=self._get_auth_headers(), method="GET")
+
+        with urlopen(request, context=self._build_ssl_context(), timeout=self.timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    def get_app_metadata(self, app_id: str) -> dict[str, Any]:
+        """Fetch app metadata from the Qlik Repository API."""
+        app = self._repository_get_json(f"/qrs/app/{app_id}")
+
+        stream = app.get("stream") or {}
+        owner = app.get("owner") or {}
+        tags = [tag.get("name", "") for tag in app.get("tags", []) if isinstance(tag, dict)]
+
+        return {
+            "id": app.get("id", app_id),
+            "name": app.get("name") or app.get("title") or "",
+            "description": app.get("description") or "",
+            "published": app.get("published", False),
+            "publish_time": app.get("publishTime") or app.get("publishedDate"),
+            "last_reload_time": app.get("lastReloadTime") or app.get("lastReloadTimeStamp"),
+            "created_at": app.get("createdDate") or app.get("created"),
+            "modified_at": app.get("modifiedDate") or app.get("modified"),
+            "owner": {
+                "id": owner.get("id"),
+                "user_id": owner.get("userId"),
+                "user_directory": owner.get("userDirectory"),
+                "name": owner.get("name"),
+            } if owner else None,
+            "stream": {
+                "id": stream.get("id"),
+                "name": stream.get("name"),
+            } if stream else None,
+            "tags": [tag for tag in tags if tag],
+            "file_size": app.get("fileSize"),
+        }
+
+    @staticmethod
+    def _summarize_field(field: dict[str, Any]) -> dict[str, Any]:
+        """Trim field payload to the metadata useful for app insights."""
+        return {
+            "name": field.get("name", ""),
+            "cardinal": field.get("cardinal", 0),
+            "is_system": field.get("is_system", False),
+            "is_hidden": field.get("is_hidden", False),
+            "is_semantic": field.get("is_semantic", False),
+            "is_numeric": field.get("is_numeric", False),
+            "source_tables": field.get("source_tables", []),
+            "tags": field.get("tags", []),
+        }
+
+    @staticmethod
+    def _summarize_measure(measure: dict[str, Any]) -> dict[str, Any]:
+        """Trim master measure payload for overview responses."""
+        return {
+            "id": measure.get("id", ""),
+            "title": measure.get("title", ""),
+            "label": measure.get("label", ""),
+            "description": measure.get("description", ""),
+            "expression": measure.get("expression", ""),
+            "tags": measure.get("tags", []),
+        }
+
+    @staticmethod
+    def _summarize_dimension(dimension: dict[str, Any]) -> dict[str, Any]:
+        """Trim master dimension payload for overview responses."""
+        info = dimension.get("info", [])
+        field_definitions = []
+        labels = []
+        for item in info:
+            if not isinstance(item, dict):
+                continue
+            field_definitions.extend(item.get("qFieldDefs", []))
+            label = item.get("qLabel")
+            if label:
+                labels.append(label)
+
+        return {
+            "id": dimension.get("dimension_id", ""),
+            "title": dimension.get("title") or dimension.get("name", ""),
+            "description": dimension.get("description", ""),
+            "grouping": dimension.get("grouping", ""),
+            "field_definitions": field_definitions,
+            "labels": labels,
+            "tags": dimension.get("tags", []),
+        }
+
+    @staticmethod
+    def _summarize_sheet_object(obj: dict[str, Any]) -> dict[str, Any]:
+        """Trim visualization payload to a compact overview."""
+        return {
+            "object_id": obj.get("object_id", ""),
+            "object_type": obj.get("object_type", ""),
+            "title": obj.get("title", ""),
+            "subtitle": obj.get("subtitle", ""),
+            "is_container": obj.get("is_container", False),
+            "embedded_object_count": obj.get("embedded_object_count", 0),
+            "measure_count": len(obj.get("measures", [])),
+            "dimension_count": len(obj.get("dimensions", [])),
+        }
+
+    def get_sheet_overviews(self, resolve_master_items: bool = True) -> dict[str, Any]:
+        """Return compact sheet and object summaries for the open app."""
+        sheets_result = self.get_sheets(include_thumbnail=False, include_metadata=True)
+        sheet_summaries = []
+        total_objects = 0
+
+        for sheet in sheets_result.get("sheets", []):
+            objects_result = self.get_sheet_objects(
+                sheet_id=sheet.get("sheet_id", ""),
+                include_properties=False,
+                include_layout=True,
+                include_data_definition=True,
+                resolve_master_items=resolve_master_items,
+            )
+
+            object_summaries = [
+                self._summarize_sheet_object(obj)
+                for obj in objects_result.get("objects", [])
+            ]
+            total_objects += len(object_summaries)
+
+            object_types: dict[str, int] = {}
+            for obj in object_summaries:
+                object_type = obj.get("object_type") or "unknown"
+                object_types[object_type] = object_types.get(object_type, 0) + 1
+
+            sheet_summaries.append({
+                "sheet_id": sheet.get("sheet_id", ""),
+                "title": sheet.get("title", ""),
+                "description": sheet.get("description", ""),
+                "rank": sheet.get("rank", 0),
+                "object_count": len(object_summaries),
+                "object_types": object_types,
+                "objects": object_summaries,
+            })
+
+        return {
+            "sheet_count": len(sheet_summaries),
+            "object_count": total_objects,
+            "sheets": sheet_summaries,
+        }
 
     def connect(self, app_id: str) -> bool:
         """Connect to Qlik Engine and open specified app"""
@@ -1611,6 +1790,280 @@ class QlikClient:
     # WRITE Methods
     # ============================================
 
+    @staticmethod
+    def _build_dimension_def(dimension: dict[str, Any]) -> dict[str, Any]:
+        """Build a Qlik hypercube dimension definition from structured input."""
+        field = dimension.get("field")
+        library_id = dimension.get("library_id")
+        label = dimension.get("label") or field or library_id or "Dimension"
+
+        q_def: dict[str, Any] = {
+            "qLabel": label,
+            "qNullSuppression": False,
+        }
+
+        if library_id:
+            q_def["qLibraryId"] = library_id
+        else:
+            if not field:
+                raise ValueError("Dimension requires either field or library_id")
+            q_def["qDef"] = {
+                "qFieldDefs": [field],
+                "qFieldLabels": [label],
+            }
+
+        if dimension.get("sort_by_ascii") not in (None, 0):
+            q_def["qDef"] = q_def.get("qDef", {})
+            q_def["qDef"]["qSortCriterias"] = [{
+                "qSortByAscii": int(dimension["sort_by_ascii"]),
+            }]
+
+        return q_def
+
+    @staticmethod
+    def _build_measure_def(measure: dict[str, Any]) -> dict[str, Any]:
+        """Build a Qlik hypercube measure definition from structured input."""
+        expression = measure.get("expression")
+        library_id = measure.get("library_id")
+        label = measure.get("label") or expression or library_id or "Measure"
+
+        q_def: dict[str, Any] = {
+            "qLabel": label,
+        }
+
+        if library_id:
+            q_def["qLibraryId"] = library_id
+        else:
+            if not expression:
+                raise ValueError("Measure requires either expression or library_id")
+            q_def["qDef"] = expression
+
+        if measure.get("number_format"):
+            q_def["qNumFormat"] = {
+                "qType": "U",
+                "qnDec": 10,
+                "qUseThou": 1,
+                "qFmt": measure["number_format"],
+            }
+
+        return q_def
+
+    @staticmethod
+    def _default_sort_order(dimensions: list[dict[str, Any]] | None = None, measures: list[dict[str, Any]] | None = None) -> list[int]:
+        """Use a consistent dimensions-first, measures-last sort order."""
+        return list(range(len(dimensions or []) + len(measures or [])))
+
+    @classmethod
+    def build_hypercube_def(
+        cls,
+        dimensions: list[dict[str, Any]] | None = None,
+        measures: list[dict[str, Any]] | None = None,
+        sort_order: list[int] | None = None,
+        column_order: list[int] | None = None,
+        initial_rows: int = 100,
+        initial_columns: int | None = None,
+        suppress_zero: bool = False,
+        suppress_missing: bool = False,
+    ) -> dict[str, Any]:
+        """Build a structured qHyperCubeDef from dimensions and measures."""
+        q_dimensions = [cls._build_dimension_def(dimension) for dimension in (dimensions or [])]
+        q_measures = [cls._build_measure_def(measure) for measure in (measures or [])]
+        column_count = initial_columns or max(len(q_dimensions) + len(q_measures), 1)
+
+        hypercube = {
+            "qDimensions": q_dimensions,
+            "qMeasures": q_measures,
+            "qInitialDataFetch": [{
+                "qTop": 0,
+                "qLeft": 0,
+                "qHeight": initial_rows,
+                "qWidth": column_count,
+            }],
+            "qSuppressZero": suppress_zero,
+            "qSuppressMissing": suppress_missing,
+        }
+
+        hypercube["qInterColumnSortOrder"] = (
+            sort_order if sort_order is not None else cls._default_sort_order(dimensions, measures)
+        )
+
+        if column_order is not None:
+            hypercube["columnOrder"] = column_order
+
+        return hypercube
+
+    def create_visualization(
+        self,
+        object_type: str,
+        title: str,
+        dimensions: list[dict[str, Any]] | None = None,
+        measures: list[dict[str, Any]] | None = None,
+        visualization_properties: dict[str, Any] | None = None,
+        object_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Create a visualization backed by a structured hypercube definition."""
+        viz_props = dict(visualization_properties or {})
+        properties = {
+            "qHyperCubeDef": self.build_hypercube_def(
+                dimensions=dimensions,
+                measures=measures,
+                sort_order=viz_props.pop("sort_order", None),
+                column_order=viz_props.pop("column_order", None),
+                initial_rows=viz_props.pop("initial_rows", 100),
+                initial_columns=viz_props.pop("initial_columns", None),
+                suppress_zero=viz_props.pop("suppress_zero", False),
+                suppress_missing=viz_props.pop("suppress_missing", False),
+            ),
+        }
+        properties.update(viz_props)
+
+        return self.create_object(
+            object_type=object_type,
+            title=title,
+            properties=properties,
+            object_id=object_id,
+        )
+
+    @classmethod
+    def build_bar_chart_properties(
+        cls,
+        dimensions: list[dict[str, Any]],
+        measures: list[dict[str, Any]],
+        orientation: str = "vertical",
+        stacked: bool = False,
+        show_legend: bool = True,
+    ) -> dict[str, Any]:
+        return {
+            "qHyperCubeDef": cls.build_hypercube_def(dimensions=dimensions, measures=measures),
+            "orientation": orientation,
+            "barGrouping": "stacked" if stacked else "grouped",
+            "legend": {"show": show_legend},
+        }
+
+    @classmethod
+    def build_line_chart_properties(
+        cls,
+        dimensions: list[dict[str, Any]],
+        measures: list[dict[str, Any]],
+        show_markers: bool = True,
+    ) -> dict[str, Any]:
+        return {
+            "qHyperCubeDef": cls.build_hypercube_def(dimensions=dimensions, measures=measures),
+            "dataPoint": {"show": show_markers},
+            "legend": {"show": True},
+        }
+
+    @classmethod
+    def build_kpi_properties(
+        cls,
+        dimensions: list[dict[str, Any]] | None = None,
+        measures: list[dict[str, Any]] | None = None,
+        subtitle: str = "",
+    ) -> dict[str, Any]:
+        properties: dict[str, Any] = {
+            "qHyperCubeDef": cls.build_hypercube_def(
+                dimensions=dimensions,
+                measures=measures,
+                initial_rows=1,
+                initial_columns=max(len(dimensions or []) + len(measures or []), 1),
+            ),
+        }
+        if subtitle:
+            properties["subtitle"] = subtitle
+        return properties
+
+    @classmethod
+    def build_table_properties(
+        cls,
+        dimensions: list[dict[str, Any]] | None = None,
+        measures: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "qHyperCubeDef": cls.build_hypercube_def(dimensions=dimensions, measures=measures),
+        }
+
+    def create_bar_chart(
+        self,
+        title: str,
+        dimensions: list[dict[str, Any]],
+        measures: list[dict[str, Any]],
+        orientation: str = "vertical",
+        stacked: bool = False,
+        show_legend: bool = True,
+        object_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Create a bar chart visualization."""
+        return self.create_object(
+            object_type="barchart",
+            title=title,
+            properties=self.build_bar_chart_properties(
+                dimensions=dimensions,
+                measures=measures,
+                orientation=orientation,
+                stacked=stacked,
+                show_legend=show_legend,
+            ),
+            object_id=object_id,
+        )
+
+    def create_line_chart(
+        self,
+        title: str,
+        dimensions: list[dict[str, Any]],
+        measures: list[dict[str, Any]],
+        show_markers: bool = True,
+        object_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Create a line chart visualization."""
+        return self.create_object(
+            object_type="linechart",
+            title=title,
+            properties=self.build_line_chart_properties(
+                dimensions=dimensions,
+                measures=measures,
+                show_markers=show_markers,
+            ),
+            object_id=object_id,
+        )
+
+    def create_kpi(
+        self,
+        title: str,
+        dimensions: list[dict[str, Any]] | None = None,
+        measures: list[dict[str, Any]] | None = None,
+        subtitle: str = "",
+        object_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Create a KPI visualization."""
+        return self.create_object(
+            object_type="kpi",
+            title=title,
+            properties=self.build_kpi_properties(
+                dimensions=dimensions,
+                measures=measures,
+                subtitle=subtitle,
+            ),
+            object_id=object_id,
+        )
+
+    def create_table(
+        self,
+        title: str,
+        dimensions: list[dict[str, Any]] | None = None,
+        measures: list[dict[str, Any]] | None = None,
+        object_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Create a straight table visualization."""
+        return self.create_object(
+            object_type="table",
+            title=title,
+            properties=self.build_table_properties(
+                dimensions=dimensions,
+                measures=measures,
+            ),
+            object_id=object_id,
+        )
+
     def create_measure(
         self,
         title: str,
@@ -1620,19 +2073,7 @@ class QlikClient:
         tags: list[str] | None = None,
         measure_id: str | None = None,
     ) -> dict[str, Any]:
-        """Create a new master measure in the app.
-
-        Args:
-            title: Measure title/name
-            expression: Qlik expression (e.g., "Sum(Sales)")
-            description: Optional description
-            label: Optional display label
-            tags: Optional list of tags
-            measure_id: Optional custom ID (auto-generated if not provided)
-
-        Returns:
-            Dict with created measure info including qId
-        """
+        """Create a new master measure in the app."""
         if not self.app_handle:
             raise ConnectionError("Not connected to an app")
 
