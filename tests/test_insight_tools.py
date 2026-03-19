@@ -37,6 +37,11 @@ def test_get_field_statistics_args_strip_app_id():
     assert args.show_implicit is True
 
 
+def test_get_field_statistics_args_reject_whitespace_app_id():
+    with pytest.raises(ValueError, match="app_id cannot be empty or whitespace"):
+        GetFieldStatisticsArgs(app_id="   ")
+
+
 def test_get_hypercube_summary_args_strip_ids():
     args = GetHypercubeSummaryArgs(app_id="  app-123  ", object_id="  obj-1  ")
 
@@ -246,6 +251,65 @@ def test_get_field_statistics_helper_compacts_field_payload():
     }
 
 
+def test_get_field_statistics_helper_normalizes_source_tables():
+    client = QlikClient()
+
+    with patch.object(client, "get_fields", return_value={
+        "field_count": 3,
+        "table_count": 9,
+        "tables": [" Sales ", "", "Sales", None, "Customers"],
+        "fields": [
+            {
+                "name": "Region",
+                "cardinal": 4,
+                "is_system": False,
+                "is_hidden": False,
+                "source_tables": "Sales",
+            },
+            {
+                "name": "CustomerID",
+                "cardinal": 100,
+                "is_system": False,
+                "is_hidden": False,
+                "source_tables": ["Customers", " Sales ", "", None, "Customers"],
+            },
+            {
+                "name": "OrphanField",
+                "cardinal": 0,
+                "is_system": False,
+                "is_hidden": False,
+                "source_tables": None,
+            },
+        ],
+    }):
+        result = client.get_field_statistics()
+
+    assert result["tables"] == ["Sales", "Customers"]
+    assert result["fields"] == [
+        {
+            "name": "Region",
+            "cardinal": 4,
+            "table_count": 1,
+            "is_system": False,
+            "is_hidden": False,
+        },
+        {
+            "name": "CustomerID",
+            "cardinal": 100,
+            "table_count": 2,
+            "is_system": False,
+            "is_hidden": False,
+        },
+        {
+            "name": "OrphanField",
+            "cardinal": 0,
+            "table_count": 0,
+            "is_system": False,
+            "is_hidden": False,
+        },
+    ]
+
+
 @pytest.mark.asyncio
 async def test_get_app_details_aggregates_repository_and_engine_data():
     with patch("src.tools.QlikClient") as mock_client_cls:
@@ -383,6 +447,36 @@ async def test_get_field_statistics_returns_compact_summary():
 
 
 @pytest.mark.asyncio
+async def test_get_field_statistics_returns_connect_error():
+    with patch("src.tools.QlikClient") as mock_client_cls:
+        client = mock_client_cls.return_value
+        client.connect.return_value = False
+
+        result = await get_field_statistics(app_id="app-123")
+
+    assert result["error"] == "Failed to connect to Qlik Engine"
+    assert result["app_id"] == "app-123"
+    assert "timestamp" in result
+    client.get_field_statistics.assert_not_called()
+    client.disconnect.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_get_field_statistics_returns_exception_error():
+    with patch("src.tools.QlikClient") as mock_client_cls:
+        client = mock_client_cls.return_value
+        client.connect.return_value = True
+        client.get_field_statistics.side_effect = RuntimeError("boom")
+
+        result = await get_field_statistics(app_id="app-123")
+
+    assert result["error"] == "boom"
+    assert result["app_id"] == "app-123"
+    assert "timestamp" in result
+    client.disconnect.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_get_hypercube_summary_returns_compact_summary():
     with patch("src.tools.QlikClient") as mock_client_cls:
         client = mock_client_cls.return_value
@@ -477,6 +571,17 @@ async def test_handle_get_field_statistics_calls_tool():
         show_implicit=False,
     )
     assert result["field_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_handle_get_field_statistics_wraps_unexpected_error():
+    with patch("src.server.get_field_statistics", side_effect=RuntimeError("unexpected")):
+        result = await handle_get_field_statistics(GetFieldStatisticsArgs(app_id="app-123"))
+
+    assert result == {
+        "error": "Unexpected error: unexpected",
+        "app_id": "app-123",
+    }
 
 
 @pytest.mark.asyncio

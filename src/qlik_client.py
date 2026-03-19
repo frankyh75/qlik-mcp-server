@@ -112,6 +112,7 @@ class QlikClient:
     @staticmethod
     def _summarize_field(field: dict[str, Any]) -> dict[str, Any]:
         """Trim field payload to the metadata useful for app insights."""
+        source_tables = QlikClient.normalize_source_tables(field.get("source_tables"))
         return {
             "name": field.get("name", ""),
             "cardinal": field.get("cardinal", 0),
@@ -119,14 +120,40 @@ class QlikClient:
             "is_hidden": field.get("is_hidden", False),
             "is_semantic": field.get("is_semantic", False),
             "is_numeric": field.get("is_numeric", False),
-            "source_tables": field.get("source_tables", []),
+            "source_tables": source_tables,
             "tags": field.get("tags", []),
         }
 
     @staticmethod
+    def normalize_source_tables(source_tables: Any) -> list[str]:
+        """Normalize table names to a unique, non-empty string list."""
+        if isinstance(source_tables, str):
+            raw_items = [source_tables]
+        elif isinstance(source_tables, (list, tuple, set)):
+            raw_items = list(source_tables)
+        else:
+            raw_items = []
+
+        normalized = []
+        seen = set()
+        for table in raw_items:
+            if not isinstance(table, str):
+                continue
+            table_name = table.strip()
+            if not table_name or table_name in seen:
+                continue
+            seen.add(table_name)
+            normalized.append(table_name)
+
+        return normalized
+
+    # backward-compatible alias
+    _normalize_source_tables = normalize_source_tables
+
+    @staticmethod
     def _summarize_field_statistics(field: dict[str, Any]) -> dict[str, Any]:
         """Trim field payload to the statistics useful for field-level insights."""
-        source_tables = field.get("source_tables", [])
+        source_tables = QlikClient.normalize_source_tables(field.get("source_tables"))
         return {
             "name": field.get("name", ""),
             "cardinal": field.get("cardinal", 0),
@@ -160,7 +187,7 @@ class QlikClient:
             ],
             "field_count": fields_result.get("field_count", 0),
             "table_count": fields_result.get("table_count", 0),
-            "tables": fields_result.get("tables", []),
+            "tables": self.normalize_source_tables(fields_result.get("tables")),
         }
 
     @staticmethod
