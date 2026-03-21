@@ -1,6 +1,10 @@
 """Test basic Qlik Sense server connection functionality."""
 
 import pytest
+from tests.conftest import skip_without_qlik
+
+pytestmark = skip_without_qlik
+
 
 from src.qlik_client import QlikClient
 

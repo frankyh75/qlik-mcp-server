@@ -1,6 +1,9 @@
 """Test both MCP tools working together"""
 
 import pytest
+from tests.conftest import skip_without_qlik
+
+pytestmark = skip_without_qlik
 
 from src.tools import get_app_measures, list_qlik_applications
 

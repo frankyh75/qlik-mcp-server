@@ -1,6 +1,10 @@
 """Test sheet and visualization object functionality"""
 
 import pytest
+from tests.conftest import skip_without_qlik
+
+pytestmark = skip_without_qlik
+
 
 from src.tools import get_app_sheets, get_sheet_objects
 

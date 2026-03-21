@@ -1,6 +1,10 @@
 """Test listing Qlik applications"""
 
 import pytest
+from tests.conftest import skip_without_qlik
+
+pytestmark = skip_without_qlik
+
 
 from src.qlik_client import QlikClient
 from src.tools import list_qlik_applications
