@@ -2037,7 +2037,10 @@ class QlikClient:
         return q_def
 
     @staticmethod
-    def _default_sort_order(dimensions: list[dict[str, Any]] | None = None, measures: list[dict[str, Any]] | None = None) -> list[int]:
+    def _default_sort_order(
+        dimensions: list[dict[str, Any]] | None = None,
+        measures: list[dict[str, Any]] | None = None,
+    ) -> list[int]:
         """Use a consistent dimensions-first, measures-last sort order."""
         return list(range(len(dimensions or []) + len(measures or [])))
 
