@@ -74,3 +74,4 @@ async def test_tools_workflow():
         # Verify the workflow completed successfully
         assert isinstance(apps_result["count"], int)
         assert isinstance(measures_result["count"], int)
+
